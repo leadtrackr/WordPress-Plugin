@@ -36,7 +36,8 @@ jobs:
 
       - run: mkdir leadtrackr-release
       - run: cp leadtrackr.php leadtrackr-release/
-      - run: cp -r app/dist leadtrackr-release/
+      - run: mkdir leadtrackr-release/app
+      - run: cp -r app/dist leadtrackr-release/app
       - run: cp -r assets leadtrackr-release/
 
       - name: Create zip
