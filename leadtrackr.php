@@ -24,6 +24,7 @@ if (!defined('ABSPATH')) {
 
 define('LEADTRACKR_API_NAMESPACE', 'leadtrackr/v1');
 define('LEADTRACKR_API_BASE_URL', home_url('/wp-json/' . LEADTRACKR_API_NAMESPACE));
+define('LEADTRACKR_LEAD_ENDPOINT', 'https://app.leadtrackr.io/api/leads/createLead');
 
 // Create the settings page
 function leadtrackr_create_menu()
@@ -312,7 +313,7 @@ function leadtrackr_gravity_forms_submission($entry, $form)
         }
     }
 
-    $response = wp_remote_post('https://webhook.site/068c672e-6fde-45ac-a973-e6b1f08680ee', array(
+    $response = wp_remote_post(LEADTRACKR_LEAD_ENDPOINT, array(
         'body' => json_encode($data),
         'headers' => array(
             'Content-Type' => 'application/json',
@@ -466,7 +467,7 @@ function leadtrackr_cf7_submission($contact_form)
         }
     }
 
-    $response = wp_remote_post('https://webhook.site/068c672e-6fde-45ac-a973-e6b1f08680ee', array(
+    $response = wp_remote_post(LEADTRACKR_LEAD_ENDPOINT, array(
         'body' => json_encode($data),
         'headers' => array(
             'Content-Type' => 'application/json',
