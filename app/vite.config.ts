@@ -13,9 +13,6 @@ export default defineConfig({
         assetFileNames: `assets/[name].[ext]`,
       },
     },
-    watch: {
-      include: "src/**",
-    }
   },
   define: {
     wpData: {}
