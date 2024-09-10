@@ -40,7 +40,6 @@ function App() {
 
   useEffect(() => {
     if (typeof window.wpData !== "undefined") {
-      console.log(window.wpData);
       if (window.wpData.projectId) {
         setProjectId(window.wpData.projectId);
       }
@@ -53,8 +52,6 @@ function App() {
     if (activeTab === "gravity-forms") {
       setForms(window.wpData.gravityForms.forms);
     }
-
-    console.log(activeTab);
 
     if (activeTab === "contact-form-7") {
       setForms(window.wpData.cf7.forms);
