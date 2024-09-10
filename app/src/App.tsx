@@ -175,7 +175,7 @@ function App() {
     <div style={{ width: "90%", margin: "auto" }} className="sm:py-8">
       <img
         src={logoSvg}
-        className="h-16 text-3xl font-semibold tracking-tight"
+        className="h-7 text-3xl font-semibold tracking-tight mb-4"
         alt="LeadTrackr"
       />
       <Tabs
