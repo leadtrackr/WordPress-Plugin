@@ -40,7 +40,7 @@ jobs:
       - run: cp -r assets leadtrackr-release/
 
       - name: Create zip
-        run: cd leadtrackr-release && zip -r leadtrackr.zip ./*
+        run: cd leadtrackr-release && zip -r leadtrackr.zip ./* && mv leadtrackr.zip ../
 
       - name: Create Draft Release
         id: create_release
