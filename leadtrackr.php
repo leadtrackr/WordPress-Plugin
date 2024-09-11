@@ -123,7 +123,7 @@ function leadtrackr_enqueue_scripts()
     wp_enqueue_script(
         'leadtrackr-app-js',
         plugin_dir_url(__FILE__) . 'app/dist/assets/index.js',
-        array('wp-element'),
+        array(),
         null,
         null
     );
