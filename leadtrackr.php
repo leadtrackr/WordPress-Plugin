@@ -65,7 +65,7 @@ function leadtrackr_get_global_data()
 
             $leadtrackr_form = reset($leadtrackr_form);
 
-            if (count($leadtrackr_form) > 0) {
+            if ($leadtrackr_form) {
                 // Merge the data from leadtrackr_gf_forms with GFAPI form data
                 return array_merge($form_data, $leadtrackr_form);
             }
@@ -93,7 +93,7 @@ function leadtrackr_get_global_data()
 
             $leadtrackr_form = reset($leadtrackr_form);
 
-            if (count($leadtrackr_form) > 0) {
+            if ($leadtrackr_form) {
                 return array_merge($form_data, $leadtrackr_form);
             }
 
