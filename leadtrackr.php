@@ -63,9 +63,11 @@ function leadtrackr_get_global_data()
                 return $leadtrackr_form['id'] === $form_data['id'];
             });
 
+            $leadtrackr_form = reset($leadtrackr_form);
+
             if (count($leadtrackr_form) > 0) {
                 // Merge the data from leadtrackr_gf_forms with GFAPI form data
-                return array_merge($form_data, $leadtrackr_form[0]);
+                return array_merge($form_data, $leadtrackr_form);
             }
 
             return $form_data;
@@ -84,12 +86,15 @@ function leadtrackr_get_global_data()
                 'customTitle' => '',
             );
 
+
             $leadtrackr_form = array_filter($cf7_forms_forms, function ($leadtrackr_form) use ($form_data) {
                 return $leadtrackr_form['id'] === $form_data['id'];
             });
 
+            $leadtrackr_form = reset($leadtrackr_form);
+
             if (count($leadtrackr_form) > 0) {
-                return array_merge($form_data, $leadtrackr_form[0]);
+                return array_merge($form_data, $leadtrackr_form);
             }
 
             return $form_data;
