@@ -188,13 +188,7 @@ define('companyPossibleNames', array('company', 'Company', 'company name', 'Comp
 
 function leadtrackr_parse_attributes_data()
 {
-    $attributes_data = array(
-        'fbc' => '',
-        'fbp' => '',
-        'gclid' => '',
-        'wbraid' => '',
-        'cid' => '',
-    );
+    $attributes_data = array();
 
     if (!isset($_COOKIE)) {
         return $attributes_data;
@@ -212,14 +206,31 @@ function leadtrackr_parse_attributes_data()
         $cid_cookie = implode('.', array_slice($parts, 2));
     }
 
-    $attributes_data['fbc'] = $_COOKIE['_fbc'] ?? '';
-    $attributes_data['fbp'] = $_COOKIE['_fbp'] ?? '';
+    if (isset($_COOKIE['_fbc'])) {
+        $attributes_data['fbc'] = $_COOKIE['_fbc'];
+    }
 
-    $attributes_data['gclid'] = isset($_COOKIE['_gcl_aw']) ? explode('.', $_COOKIE['_gcl_aw'])[2] ?? '' : '';
+    if (isset($_COOKIE['_fbp'])) {
+        $attributes_data['fbp'] = $_COOKIE['_fbp'];
+    }
 
-    $attributes_data['wbraid'] = isset($_COOKIE['_gcl_gb']) ? explode('.', $_COOKIE['_gcl_gb'])[2] ?? '' : '';
+    if (isset($_COOKIE['_gcl_aw'])) {
+        $cookie_parts = explode('.', $_COOKIE['_gcl_aw']);
+        if (isset($cookie_parts[2])) {
+            $attributes_data['gclid'] =  $cookie_parts[2];
+        }
+    }
 
-    $attributes_data['cid'] = $cid_cookie;
+    if (isset($_COOKIE['_gcl_gb'])) {
+        $cookie_parts = explode('.', $_COOKIE['_gcl_gb']);
+        if (isset($cookie_parts[2])) {
+            $attributes_data['wbraid'] =  $cookie_parts[2];
+        }
+    }
+
+    if ($cid_cookie !== '') {
+        $attributes_data['cid'] = $cid_cookie;
+    }
 
     return $attributes_data;
 }
@@ -265,13 +276,7 @@ function leadtrackr_gravity_forms_submission($entry, $form)
             'customFormName' => $leadtrackr_form['customTitle'] ?? '',
             'formFields' => array()
         ),
-        'userData' => array(
-            'firstName' => '',
-            'lastName' => '',
-            'email' => '',
-            'phone' => '',
-            'company' => '',
-        ),
+        'userData' => array(),
         'deviceData' => array(
             'ipAddress' => $entry['ip'],
             'userAgent' => $entry['user_agent'],
@@ -356,13 +361,7 @@ function leadtrackr_cf7_submission($contact_form)
             'customFormName' => $leadtrackr_form['customTitle'] ?? '',
             'formFields' => array()
         ),
-        'userData' => array(
-            'firstName' => '',
-            'lastName' => '',
-            'email' => '',
-            'phone' => '',
-            'company' => '',
-        ),
+        'userData' => array(),
         'deviceData' => array(
             'ipAddress' => $_SERVER['REMOTE_ADDR'],
             'userAgent' => $_SERVER['HTTP_USER_AGENT'],
@@ -435,6 +434,11 @@ function leadtrackr_cf7_submission($contact_form)
         }
     }
 
+    if (($data['userData']['email'] === '' || $data['userData']['email'] === null)) {
+        $emailField = $contact_form->scan_form_tags(['type' => 'email'])[0];
+        $data['userData']['email'] = $submission->get_posted_data($emailField['name']);
+    }
+
     foreach (phonePossibleNames as $possibleName) {
         if ($submission->get_posted_data($possibleName) && ($data['userData']['phone'] === '' || $data['userData']['phone'] === null)) {
             $data['userData']['phone'] = $submission->get_posted_data($possibleName);
@@ -449,6 +453,11 @@ function leadtrackr_cf7_submission($contact_form)
                 }
             }
         }
+    }
+
+    if (($data['userData']['phone'] === '' || $data['userData']['phone'] === null)) {
+        $phoneField = $contact_form->scan_form_tags(['type' => 'tel'])[0];
+        $data['userData']['phone'] = $submission->get_posted_data($phoneField['name']);
     }
 
     foreach (companyPossibleNames as $possibleName) {
