@@ -22,6 +22,8 @@ if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly
 }
 
+define('LEADTRACKR_PLUGIN_VERSION', '1.0.0');
+
 define('LEADTRACKR_API_NAMESPACE', 'leadtrackr/v1');
 define('LEADTRACKR_API_BASE_URL', home_url('/wp-json/' . LEADTRACKR_API_NAMESPACE));
 define('LEADTRACKR_LEAD_ENDPOINT', 'https://app.leadtrackr.io/api/leads/createLead');
@@ -129,7 +131,7 @@ function leadtrackr_enqueue_scripts()
         'leadtrackr-app-js',
         plugin_dir_url(__FILE__) . 'app/dist/assets/index.js',
         array(),
-        null,
+        LEADTRACKR_PLUGIN_VERSION,
         null
     );
 
@@ -137,7 +139,7 @@ function leadtrackr_enqueue_scripts()
         'leadtrackr-app-css',
         plugin_dir_url(__FILE__) . 'app/dist/assets/index.css',
         array(),
-        null
+        LEADTRACKR_PLUGIN_VERSION
     );
 
 
@@ -202,32 +204,32 @@ function leadtrackr_parse_attributes_data()
     $cid_cookie = '';
 
     if (isset($_COOKIE['FPID'])) {
-        $cid_cookie = $_COOKIE['FPID'];
+        $cid_cookie = sanitize_text_field(wp_unslash($_COOKIE['FPID']));
         $parts = explode('.', $cid_cookie);
         $cid_cookie = implode('.', array_slice($parts, 2));
     } else if (isset($_COOKIE['_ga'])) {
-        $cid_cookie = $_COOKIE['_ga'];
+        $cid_cookie = sanitize_text_field(wp_unslash($_COOKIE['_ga']));
         $parts = explode('.', $cid_cookie);
         $cid_cookie = implode('.', array_slice($parts, 2));
     }
 
     if (isset($_COOKIE['_fbc'])) {
-        $attributes_data['fbc'] = $_COOKIE['_fbc'];
+        $attributes_data['fbc'] = sanitize_text_field(wp_unslash($_COOKIE['_fbc']));
     }
 
     if (isset($_COOKIE['_fbp'])) {
-        $attributes_data['fbp'] = $_COOKIE['_fbp'];
+        $attributes_data['fbp'] = sanitize_text_field(wp_unslash($_COOKIE['_fbp']));
     }
 
     if (isset($_COOKIE['_gcl_aw'])) {
-        $cookie_parts = explode('.', $_COOKIE['_gcl_aw']);
+        $cookie_parts = explode('.', sanitize_text_field(wp_unslash($_COOKIE['_gcl_aw'])));
         if (isset($cookie_parts[2])) {
             $attributes_data['gclid'] =  $cookie_parts[2];
         }
     }
 
     if (isset($_COOKIE['_gcl_gb'])) {
-        $cookie_parts = explode('.', $_COOKIE['_gcl_gb']);
+        $cookie_parts = explode('.', sanitize_text_field(wp_unslash($_COOKIE['_gcl_gb'])));
         if (isset($cookie_parts[2])) {
             $attributes_data['wbraid'] =  $cookie_parts[2];
         }
@@ -260,18 +262,6 @@ function leadtrackr_gravity_forms_submission($entry, $form)
     }
 
     $leadtrackr_form = $leadtrackr_form[0];
-
-    $cid_cookie = '';
-
-    if (isset($_COOKIE['FPID'])) {
-        $cid_cookie = $_COOKIE['FPID'];
-        $parts = explode('.', $cid_cookie);
-        $cid_cookie = implode('.', array_slice($parts, 2));
-    } else if (isset($_COOKIE['_ga'])) {
-        $cid_cookie = $_COOKIE['_ga'];
-        $parts = explode('.', $cid_cookie);
-        $cid_cookie = implode('.', array_slice($parts, 2));
-    }
 
     $data = array(
         'projectId' => get_option('leadtrackr_project_id', ''),
@@ -324,7 +314,7 @@ function leadtrackr_gravity_forms_submission($entry, $form)
     }
 
     $response = wp_remote_post(LEADTRACKR_LEAD_ENDPOINT, array(
-        'body' => json_encode($data),
+        'body' => wp_json_encode($data),
         'headers' => array(
             'Content-Type' => 'application/json',
         ),
@@ -367,12 +357,17 @@ function leadtrackr_cf7_submission($contact_form)
             'formFields' => array()
         ),
         'userData' => array(),
-        'deviceData' => array(
-            'ipAddress' => $_SERVER['REMOTE_ADDR'],
-            'userAgent' => $_SERVER['HTTP_USER_AGENT'],
-        ),
+        'deviceData' => array(),
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
+
+    if (isset($_SERVER['REMOTE_ADDR']) && !empty($_SERVER['REMOTE_ADDR'])) {
+        $data['deviceData']['ipAddress'] = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR']));
+    }
+
+    if (isset($_SERVER['HTTP_USER_AGENT']) && !empty($_SERVER['HTTP_USER_AGENT'])) {
+        $data['deviceData']['userAgent'] = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT']));
+    }
 
     $submission = WPCF7_Submission::get_instance();
 
@@ -382,8 +377,6 @@ function leadtrackr_cf7_submission($contact_form)
     }
 
     $all_form_fields = array();
-
-    error_log(print_r($all_form_fields, true));
 
     foreach ($submission->get_posted_data() as $key => $value) {
         $data['formData']['formFields'][$key] = $value;
@@ -482,7 +475,7 @@ function leadtrackr_cf7_submission($contact_form)
     }
 
     $response = wp_remote_post(LEADTRACKR_LEAD_ENDPOINT, array(
-        'body' => json_encode($data),
+        'body' => wp_json_encode($data),
         'headers' => array(
             'Content-Type' => 'application/json',
         ),
