@@ -34,14 +34,15 @@ jobs:
       - name: Build Vite React app
         run: cd app && npm run build
 
-      - run: mkdir leadtrackr-release
-      - run: cp leadtrackr.php leadtrackr-release/
-      - run: mkdir leadtrackr-release/app
-      - run: cp -r app/dist leadtrackr-release/app
-      - run: cp -r assets leadtrackr-release/
+      - run: mkdir leadtrackr
+      - run: cp readme.txt leadtrackr/
+      - run: cp leadtrackr.php leadtrackr/
+      - run: mkdir leadtrackr/app
+      - run: cp -r app/dist leadtrackr/app
+      - run: cp -r assets leadtrackr/
 
       - name: Create zip
-        run: cd leadtrackr-release && zip -r leadtrackr.zip ./* && mv leadtrackr.zip ../
+        run: zip -r leadtrackr.zip leadtrackr
 
       - name: Create Draft Release
         id: create_release
