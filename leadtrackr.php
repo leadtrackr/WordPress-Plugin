@@ -158,6 +158,7 @@ function leadtrackr_register_rest_api()
                 'success' => true,
             ));
         },
+        'permission_callback' => '__return_true',
     ));
 
     register_rest_route(LEADTRACKR_API_NAMESPACE, '/gravity-forms', array(
@@ -170,6 +171,7 @@ function leadtrackr_register_rest_api()
                 'success' => true,
             ));
         },
+        'permission_callback' => '__return_true',
     ));
 
     register_rest_route(LEADTRACKR_API_NAMESPACE, '/contact-form-7', array(
@@ -182,6 +184,7 @@ function leadtrackr_register_rest_api()
                 'success' => true,
             ));
         },
+        'permission_callback' => '__return_true',
     ));
 }
 
