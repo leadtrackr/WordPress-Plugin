@@ -260,11 +260,12 @@ function leadtrackr_gravity_forms_submission($entry, $form)
         return $leadtrackr_form['id'] === $form_id;
     });
 
-    if (count($leadtrackr_form) === 0 || !$leadtrackr_form[0]['sendToLeadTrackr']) {
+    $leadtrackr_form = reset($leadtrackr_form);
+
+
+    if ($leadtrackr_form && !$leadtrackr_form['sendToLeadTrackr']) {
         return;
     }
-
-    $leadtrackr_form = $leadtrackr_form[0];
 
     $data = array(
         'projectId' => get_option('leadtrackr_project_id', ''),
@@ -345,11 +346,11 @@ function leadtrackr_cf7_submission($contact_form)
         return $leadtrackr_form['id'] === $form_id;
     });
 
-    if (count($leadtrackr_form) === 0 || !$leadtrackr_form[0]['sendToLeadTrackr']) {
+    $leadtrackr_form = reset($leadtrackr_form);
+
+    if ($leadtrackr_form && !$leadtrackr_form['sendToLeadTrackr']) {
         return;
     }
-
-    $leadtrackr_form = $leadtrackr_form[0];
 
     $data = array(
         'projectId' => get_option('leadtrackr_project_id', ''),
@@ -388,12 +389,12 @@ function leadtrackr_cf7_submission($contact_form)
     }
 
     foreach (firstNamePossibleNames as $possibleName) {
-        if ($submission->get_posted_data($possibleName) && ($data['userData']['firstName'] === '' || $data['userData']['firstName'] === null)) {
+        if ($submission->get_posted_data($possibleName) && (($data['userData']['firstName'] ?? '') === '')) {
             $data['userData']['firstName'] = $submission->get_posted_data($possibleName);
             break;
         }
 
-        if (($data['userData']['firstName'] === '' || $data['userData']['firstName'] === null)) {
+        if ((($data['userData']['firstName'] ?? '') === '')) {
             foreach ($all_form_fields as $field) {
                 if (strpos($field, $possibleName) !== false) {
                     $data['userData']['firstName'] = $submission->get_posted_data($field);
@@ -404,12 +405,12 @@ function leadtrackr_cf7_submission($contact_form)
     }
 
     foreach (lastNamePossibleNames as $possibleName) {
-        if ($submission->get_posted_data($possibleName) && ($data['userData']['lastName'] === '' || $data['userData']['lastName'] === null)) {
+        if ($submission->get_posted_data($possibleName) && (($data['userData']['lastName'] ?? '') === '')) {
             $data['userData']['lastName'] = $submission->get_posted_data($possibleName);
             break;
         }
 
-        if (($data['userData']['lastName'] === '' || $data['userData']['lastName'] === null)) {
+        if ((($data['userData']['lastName'] ?? '') === '')) {
             foreach ($all_form_fields as $field) {
                 if (strpos($field, $possibleName) !== false) {
                     $data['userData']['lastName'] = $submission->get_posted_data($field);
@@ -420,12 +421,12 @@ function leadtrackr_cf7_submission($contact_form)
     }
 
     foreach (emailPossibleNames as $possibleName) {
-        if ($submission->get_posted_data($possibleName) && ($data['userData']['email'] === '' || $data['userData']['email'] === null)) {
+        if ($submission->get_posted_data($possibleName) && (($data['userData']['email'] ?? '') === '')) {
             $data['userData']['email'] = $submission->get_posted_data($possibleName);
             break;
         }
 
-        if (($data['userData']['email'] === '' || $data['userData']['email'] === null)) {
+        if ((($data['userData']['email'] ?? '') === '')) {
             foreach ($all_form_fields as $field) {
                 if (strpos($field, $possibleName) !== false) {
                     $data['userData']['email'] = $submission->get_posted_data($field);
@@ -435,18 +436,18 @@ function leadtrackr_cf7_submission($contact_form)
         }
     }
 
-    if (($data['userData']['email'] === '' || $data['userData']['email'] === null)) {
+    if ((($data['userData']['email'] ?? '') === '')) {
         $emailField = $contact_form->scan_form_tags(['type' => 'email'])[0];
         $data['userData']['email'] = $submission->get_posted_data($emailField['name']);
     }
 
     foreach (phonePossibleNames as $possibleName) {
-        if ($submission->get_posted_data($possibleName) && ($data['userData']['phone'] === '' || $data['userData']['phone'] === null)) {
+        if ($submission->get_posted_data($possibleName) && (($data['userData']['phone'] ?? '') === '')) {
             $data['userData']['phone'] = $submission->get_posted_data($possibleName);
             break;
         }
 
-        if (($data['userData']['phone'] === '' || $data['userData']['phone'] === null)) {
+        if ((($data['userData']['phone'] ?? '') === '')) {
             foreach ($all_form_fields as $field) {
                 if (strpos($field, $possibleName) !== false) {
                     $data['userData']['phone'] = $submission->get_posted_data($field);
@@ -456,18 +457,18 @@ function leadtrackr_cf7_submission($contact_form)
         }
     }
 
-    if (($data['userData']['phone'] === '' || $data['userData']['phone'] === null)) {
+    if ((($data['userData']['phone'] ?? '') === '')) {
         $phoneField = $contact_form->scan_form_tags(['type' => 'tel'])[0];
         $data['userData']['phone'] = $submission->get_posted_data($phoneField['name']);
     }
 
     foreach (companyPossibleNames as $possibleName) {
-        if ($submission->get_posted_data($possibleName) && ($data['userData']['company'] === '' || $data['userData']['company'] === null)) {
+        if ($submission->get_posted_data($possibleName) && (($data['userData']['company'] ?? '') === '')) {
             $data['userData']['company'] = $submission->get_posted_data($possibleName);
             break;
         }
 
-        if (($data['userData']['company'] === '' || $data['userData']['company'] === null)) {
+        if ((($data['userData']['company'] ?? '') === '')) {
             foreach ($all_form_fields as $field) {
                 if (strpos($field, $possibleName) !== false) {
                     $data['userData']['company'] = $submission->get_posted_data($field);
