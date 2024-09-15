@@ -190,11 +190,11 @@ function leadtrackr_register_rest_api()
 
 add_action('rest_api_init', 'leadtrackr_register_rest_api');
 
-define('firstNamePossibleNames', array('first_name', 'firstName', 'first-name', 'First Name', 'name', 'Name'));
-define('lastNamePossibleNames', array('last_name', 'lastName', 'last-name', 'Last Name'));
-define('emailPossibleNames', array('email', 'Email', 'e-mail', 'E-mail', 'e-mail address', 'E-mail Address'));
-define('phonePossibleNames', array('phone', 'Phone', 'phone number', 'Phone Number'));
-define('companyPossibleNames', array('company', 'Company', 'company name', 'Company Name'));
+define('firstNamePossibleNames', array('first_name', 'firstName', 'first-name', 'First Name', 'name', 'Name', 'voornaam', 'naam', 'Voornaam', 'Naam'));
+define('lastNamePossibleNames', array('last_name', 'lastName', 'last-name', 'Last Name', 'surname', 'Surname', 'achternaam', 'Achternaam'));
+define('emailPossibleNames', array('email', 'Email', 'e-mail', 'E-mail', 'e-mail address', 'E-mail Address', 'email address', 'Email Address', 'emailadres', 'Emailadres', 'e-mailadres', 'E-mailadres'));
+define('phonePossibleNames', array('phone', 'Phone', 'phone number', 'Phone Number', 'telefoon', 'Telefoon', 'telefoonnummer', 'Telefoonnummer'));
+define('companyPossibleNames', array('company', 'Company', 'company name', 'Company Name', 'bedrijf', 'Bedrijf', 'bedrijfsnaam', 'Bedrijfsnaam'));
 
 function leadtrackr_parse_attributes_data()
 {
