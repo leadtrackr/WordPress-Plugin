@@ -458,9 +458,13 @@ function leadtrackr_cf7_submission($contact_form)
     }
 
     if ((($data['userData']['phone'] ?? '') === '')) {
-        $phoneField = $contact_form->scan_form_tags(['type' => 'tel'])[0];
-        $data['userData']['phone'] = $submission->get_posted_data($phoneField['name']);
+        $phoneFields = $contact_form->scan_form_tags(['type' => 'tel']);
+
+        if (!empty($phoneFields) && isset($phoneFields[0])) {
+            $data['userData']['phone'] = $submission->get_posted_data($phoneFields[0]['name']);
+        }
     }
+
 
     foreach (companyPossibleNames as $possibleName) {
         if ($submission->get_posted_data($possibleName) && (($data['userData']['company'] ?? '') === '')) {
