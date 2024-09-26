@@ -26,13 +26,17 @@ declare global {
         enabled: boolean;
         forms: LeadTrackrForm[];
       };
+      elementor: {
+        enabled: boolean;
+        forms: LeadTrackrForm[];
+      };
     };
   }
 }
 
 function App() {
   const [activeTab, setActiveTab] = useState<
-    "general" | "gravity-forms" | "contact-form-7" | string
+    "general" | "gravity-forms" | "contact-form-7" | "elementor" | string
   >("general");
   const [projectId, setProjectId] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
@@ -55,6 +59,12 @@ function App() {
 
     if (activeTab === "contact-form-7") {
       setForms(window.wpData.cf7.forms);
+    }
+
+    console.log(activeTab);
+
+    if (activeTab === "elementor") {
+      setForms(window.wpData.elementor.forms);
     }
   }, [activeTab]);
 
@@ -198,6 +208,12 @@ function App() {
           >
             Contact Form 7
           </TabsTrigger>
+          <TabsTrigger
+            disabled={!window.wpData.elementor.enabled}
+            value="elementor"
+          >
+            Elementor
+          </TabsTrigger>
         </TabsList>
 
         <div className="mt-2">
@@ -225,6 +241,7 @@ function App() {
           </TabsContent>
           <TabsContent value="gravity-forms">{formsContent}</TabsContent>
           <TabsContent value="contact-form-7">{formsContent}</TabsContent>
+          <TabsContent value="elementor">{formsContent}</TabsContent>
           {activeTab !== "general" && (
             <Button disabled={loading} onClick={onSaveForms} className="mt-2">
               {loading ? "Saving..." : "Save"}
