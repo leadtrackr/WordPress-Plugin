@@ -61,8 +61,6 @@ function App() {
       setForms(window.wpData.cf7.forms);
     }
 
-    console.log(activeTab);
-
     if (activeTab === "elementor") {
       setForms(window.wpData.elementor.forms);
     }
