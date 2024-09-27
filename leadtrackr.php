@@ -9,7 +9,7 @@
  * @wordpress-plugin
  * Plugin Name:       LeadTrackr
  * Description:       LeadTrackr description
- * Version:           1.0.0
+ * Version:           1.0.1
  * Author:            LeadTrackr
  * Author URI:        https://leadtrackr.io/
  * License:           GPL-2.0+
