@@ -14,7 +14,7 @@
  * Author URI:        https://leadtrackr.io/
  * License:           GPL-2.0+
  * License URI:       http://www.gnu.org/licenses/gpl-2.0.txt
- * Requires PHP:      8.0
+ * Requires PHP:      7.0
  * Requires at least: 6.0
  */
 
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly
 }
 
-define('LEADTRACKR_PLUGIN_VERSION', '1.0.0');
+define('LEADTRACKR_PLUGIN_VERSION', '1.0.1');
 
 define('LEADTRACKR_API_NAMESPACE', 'leadtrackr/v1');
 define('LEADTRACKR_API_BASE_URL', home_url('/wp-json/' . LEADTRACKR_API_NAMESPACE));
@@ -44,6 +44,84 @@ function leadtrackr_create_menu()
     );
 }
 add_action('admin_menu', 'leadtrackr_create_menu');
+
+function leadtrackr_list_recursive_iterate_elements($elements, &$forms)
+{
+    /**
+     * Start our loop.
+     */
+    foreach ($elements as $element) {
+        /**
+         * Check if our form.
+         */
+        if (isset($element->widgetType) && $element->widgetType == 'form') {
+            $forms[] = $element;
+        }
+        /**
+         * Check if we have elements.
+         */
+        if (empty($element->elements) === false) {
+            $recursive = leadtrackr_list_recursive_iterate_elements($element->elements, $forms);
+        }
+    }
+}
+/**
+ * Get all elementor forms.
+ * This function retrieves data from wp_meta_table.
+ * @param string $offset. The offset for pagination.
+ *
+ * @return array. Returns array of all form with relevant data or null if no forms.
+ */
+function leadtrackr_list_get_elementor_forms($offset = 0)
+{
+    global $wpdb;
+    /**
+     * Get the forms now.
+     */
+    $results = $wpdb->get_results("SELECT a.ID, b.meta_value FROM $wpdb->posts a, $wpdb->postmeta b WHERE a.post_type NOT IN ('draft', 'revision') AND a.post_status = 'publish' AND a.ID = b.post_id AND b.meta_key = '_elementor_data' LIMIT 100000");
+    /**
+     * Check if empty.
+     */
+    if (empty($results)) {
+        return null;
+    }
+    /**
+     * Set vars.
+     */
+    $all_forms = [];
+    /**
+     * Now loop over results, extract form data.
+     */
+    foreach ($results as $result) {
+        /**
+         * Decode the data first. They are stored in json format.
+         */
+        $data = json_decode($result->meta_value);
+        /**
+         * Only proceed if object.
+         */
+
+        if (is_array($data) === false || empty($data) === true) {
+            continue;
+        }
+        /**
+         * Set vars.
+         */
+        $forms = [];
+        /**
+         * Start recursive iteration.
+         */
+        $iteration = leadtrackr_list_recursive_iterate_elements($data, $forms);
+        /**
+         * Set data to all forms.
+         */
+        $all_forms[$result->ID] = $forms;
+    }
+    /**
+     * Now filter the form data.
+     */
+    return $all_forms;
+}
 
 function leadtrackr_get_global_data()
 {
@@ -103,6 +181,44 @@ function leadtrackr_get_global_data()
         }, $cf7_forms);
     }
 
+    $elementor_enabled = is_plugin_active('elementor-pro/elementor-pro.php');
+    $elementor_forms_forms = get_option('leadtrackr_elementor_forms', array());
+    if ($elementor_enabled) {
+        $results = leadtrackr_list_get_elementor_forms();
+
+        $elementor_forms = [];
+
+        foreach ($results as $page_id => $forms) {
+            /**
+             * Now loop over sub-forms for page-id.
+             */
+            foreach ($forms as $form) {
+                $elementor_forms[] = $form;
+            }
+        }
+
+        $elementor_forms_forms = array_map(function ($form) use ($elementor_forms_forms) {
+            $form_data = array(
+                'id' => $form->id,
+                'title' => $form->settings->form_name,
+                'sendToLeadTrackr' => false,
+                'customTitle' => '',
+            );
+
+            $leadtrackr_form = array_filter($elementor_forms_forms, function ($leadtrackr_form) use ($form_data) {
+                return $leadtrackr_form['id'] === $form_data['id'];
+            });
+
+            $leadtrackr_form = reset($leadtrackr_form);
+
+            if ($leadtrackr_form) {
+                return array_merge($form_data, $leadtrackr_form);
+            }
+
+            return $form_data;
+        }, $elementor_forms);
+    }
+
     return array(
         'apiUrl' => LEADTRACKR_API_BASE_URL,
         'projectId' => get_option('leadtrackr_project_id', ''),
@@ -113,6 +229,10 @@ function leadtrackr_get_global_data()
         'cf7' => array(
             'enabled' => $cf7_enabled,
             'forms' => $cf7_forms_forms,
+        ),
+        'elementor' => array(
+            'enabled' => $elementor_enabled,
+            'forms' => $elementor_forms_forms,
         ),
     );
 }
@@ -179,6 +299,19 @@ function leadtrackr_register_rest_api()
         'callback' => function (WP_REST_Request $request) {
             $leadtrackr_cf7_forms = $request->get_json_params()['forms'];
             update_option('leadtrackr_cf7_forms', $leadtrackr_cf7_forms);
+
+            return new WP_REST_Response(array(
+                'success' => true,
+            ));
+        },
+        'permission_callback' => '__return_true',
+    ));
+
+    register_rest_route(LEADTRACKR_API_NAMESPACE, '/elementor', array(
+        'methods' => 'POST',
+        'callback' => function (WP_REST_Request $request) {
+            $leadtrackr_elementor_forms = $request->get_json_params()['forms'];
+            update_option('leadtrackr_elementor_forms', $leadtrackr_elementor_forms);
 
             return new WP_REST_Response(array(
                 'success' => true,
@@ -263,7 +396,7 @@ function leadtrackr_gravity_forms_submission($entry, $form)
     $leadtrackr_form = reset($leadtrackr_form);
 
 
-    if ($leadtrackr_form && !$leadtrackr_form['sendToLeadTrackr']) {
+    if (empty($leadtrackr_form) || !$leadtrackr_form['sendToLeadTrackr']) {
         return;
     }
 
@@ -348,7 +481,7 @@ function leadtrackr_cf7_submission($contact_form)
 
     $leadtrackr_form = reset($leadtrackr_form);
 
-    if ($leadtrackr_form && !$leadtrackr_form['sendToLeadTrackr']) {
+    if (empty($leadtrackr_form) || !$leadtrackr_form['sendToLeadTrackr']) {
         return;
     }
 
@@ -495,3 +628,83 @@ function leadtrackr_cf7_submission($contact_form)
 }
 
 add_action('wpcf7_mail_sent', 'leadtrackr_cf7_submission', 10, 1);
+
+/**
+ * Handle Elementor form submission.
+ * 
+ * @param ElementorPro\Modules\Forms\Classes\Form_Record $record The form record object.
+ */
+function leadtrackr_elementor_forms_submission($record)
+{
+    $leadtrackr_elementor_forms = get_option('leadtrackr_elementor_forms', array());
+    $form_id = $record->get_form_settings('id');
+
+    if (!$form_id) {
+        return;
+    }
+
+    $leadtrackr_form = array_filter($leadtrackr_elementor_forms, function ($leadtrackr_form) use ($form_id) {
+        return $leadtrackr_form['id'] === $form_id;
+    });
+
+    $leadtrackr_form = reset($leadtrackr_form);
+
+    if (empty($leadtrackr_form) || !$leadtrackr_form['sendToLeadTrackr']) {
+        return;
+    }
+
+    $data = array(
+        'projectId' => get_option('leadtrackr_project_id', ''),
+        'formData' => array(
+            'formId' => $form_id,
+            'formName' => $record->get_form_settings('form_name'),
+            'customFormName' => $leadtrackr_form['customTitle'] ?? '',
+            'formFields' => array()
+        ),
+        'userData' => array(),
+        'deviceData' => array(
+            'ipAddress' => $_SERVER['REMOTE_ADDR'],
+            'userAgent' => $_SERVER['HTTP_USER_AGENT'],
+        ),
+        'attributionData' => leadtrackr_parse_attributes_data(),
+    );
+
+    $fields = $record->get_formatted_data();
+
+    foreach ($fields as $key => $value) {
+        $data['formData']['formFields'][$key] = $value;
+
+        if (in_array($key, firstNamePossibleNames)) {
+            $data['userData']['firstName'] = $value;
+        }
+
+        if (in_array($key, lastNamePossibleNames)) {
+            $data['userData']['lastName'] = $value;
+        }
+
+        if (in_array($key, emailPossibleNames)) {
+            $data['userData']['email'] = $value;
+        }
+
+        if (in_array($key, phonePossibleNames)) {
+            $data['userData']['phone'] = $value;
+        }
+
+        if (in_array($key, companyPossibleNames)) {
+            $data['userData']['company'] = $value;
+        }
+    }
+
+    $response = wp_remote_post(LEADTRACKR_LEAD_ENDPOINT, array(
+        'body' => wp_json_encode($data),
+        'headers' => array(
+            'Content-Type' => 'application/json',
+        ),
+    ));
+
+    if (is_wp_error($response)) {
+        error_log('LeadTrackr: Error sending Elementor form submission to LeadTrackr: ' . $response->get_error_message());
+    }
+}
+
+add_action('elementor_pro/forms/new_record', 'leadtrackr_elementor_forms_submission', 10, 1);
