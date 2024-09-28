@@ -323,11 +323,11 @@ function leadtrackr_register_rest_api()
 
 add_action('rest_api_init', 'leadtrackr_register_rest_api');
 
-define('firstNamePossibleNames', array('first_name', 'firstName', 'first-name', 'First Name', 'name', 'Name', 'voornaam', 'naam', 'Voornaam', 'Naam'));
-define('lastNamePossibleNames', array('last_name', 'lastName', 'last-name', 'Last Name', 'surname', 'Surname', 'achternaam', 'Achternaam'));
-define('emailPossibleNames', array('email', 'Email', 'e-mail', 'E-mail', 'e-mail address', 'E-mail Address', 'email address', 'Email Address', 'emailadres', 'Emailadres', 'e-mailadres', 'E-mailadres'));
-define('phonePossibleNames', array('phone', 'Phone', 'phone number', 'Phone Number', 'telefoon', 'Telefoon', 'telefoonnummer', 'Telefoonnummer'));
-define('companyPossibleNames', array('company', 'Company', 'company name', 'Company Name', 'bedrijf', 'Bedrijf', 'bedrijfsnaam', 'Bedrijfsnaam'));
+define('leadtrackr_firstNamePossibleNames', array('first_name', 'firstName', 'first-name', 'First Name', 'name', 'Name', 'voornaam', 'naam', 'Voornaam', 'Naam'));
+define('leadtrackr_lastNamePossibleNames', array('last_name', 'lastName', 'last-name', 'Last Name', 'surname', 'Surname', 'achternaam', 'Achternaam'));
+define('leadtrackr_emailPossibleNames', array('email', 'Email', 'e-mail', 'E-mail', 'e-mail address', 'E-mail Address', 'email address', 'Email Address', 'emailadres', 'Emailadres', 'e-mailadres', 'E-mailadres'));
+define('leadtrackr_phonePossibleNames', array('phone', 'Phone', 'phone number', 'Phone Number', 'telefoon', 'Telefoon', 'telefoonnummer', 'Telefoonnummer'));
+define('leadtrackr_companyPossibleNames', array('company', 'Company', 'company name', 'Company Name', 'bedrijf', 'Bedrijf', 'bedrijfsnaam', 'Bedrijfsnaam'));
 
 function leadtrackr_parse_attributes_data()
 {
@@ -421,11 +421,11 @@ function leadtrackr_gravity_forms_submission($entry, $form)
             $field['label'] => $entry[$field['id']],
         );
 
-        if (in_array($field['label'], firstNamePossibleNames)) {
+        if (in_array($field['label'], leadtrackr_firstNamePossibleNames)) {
             $data['userData']['firstName'] = $entry[$field['id']];
         }
 
-        if (in_array($field['label'], lastNamePossibleNames)) {
+        if (in_array($field['label'], leadtrackr_lastNamePossibleNames)) {
             $data['userData']['lastName'] = $entry[$field['id']];
         }
 
@@ -433,7 +433,7 @@ function leadtrackr_gravity_forms_submission($entry, $form)
             $data['userData']['email'] = $entry[$field['id']];
         }
 
-        if (in_array($field['label'], emailPossibleNames)) {
+        if (in_array($field['label'], leadtrackr_emailPossibleNames)) {
             $data['userData']['email'] = $entry[$field['id']];
         }
 
@@ -441,11 +441,11 @@ function leadtrackr_gravity_forms_submission($entry, $form)
             $data['userData']['phone'] = $entry[$field['id']];
         }
 
-        if (in_array($field['label'], phonePossibleNames)) {
+        if (in_array($field['label'], leadtrackr_phonePossibleNames)) {
             $data['userData']['phone'] = $entry[$field['id']];
         }
 
-        if (in_array($field['label'], companyPossibleNames)) {
+        if (in_array($field['label'], leadtrackr_companyPossibleNames)) {
             $data['userData']['company'] = $entry[$field['id']];
         }
     }
@@ -521,7 +521,7 @@ function leadtrackr_cf7_submission($contact_form)
         $all_form_fields[] = $key;
     }
 
-    foreach (firstNamePossibleNames as $possibleName) {
+    foreach (leadtrackr_firstNamePossibleNames as $possibleName) {
         if ($submission->get_posted_data($possibleName) && (($data['userData']['firstName'] ?? '') === '')) {
             $data['userData']['firstName'] = $submission->get_posted_data($possibleName);
             break;
@@ -674,23 +674,23 @@ function leadtrackr_elementor_forms_submission($record)
     foreach ($fields as $key => $value) {
         $data['formData']['formFields'][$key] = $value;
 
-        if (in_array($key, firstNamePossibleNames)) {
+        if (in_array($key, leadtrackr_firstNamePossibleNames)) {
             $data['userData']['firstName'] = $value;
         }
 
-        if (in_array($key, lastNamePossibleNames)) {
+        if (in_array($key, leadtrackr_lastNamePossibleNames)) {
             $data['userData']['lastName'] = $value;
         }
 
-        if (in_array($key, emailPossibleNames)) {
+        if (in_array($key, leadtrackr_emailPossibleNames)) {
             $data['userData']['email'] = $value;
         }
 
-        if (in_array($key, phonePossibleNames)) {
+        if (in_array($key, leadtrackr_phonePossibleNames)) {
             $data['userData']['phone'] = $value;
         }
 
-        if (in_array($key, companyPossibleNames)) {
+        if (in_array($key, leadtrackr_companyPossibleNames)) {
             $data['userData']['company'] = $value;
         }
     }
