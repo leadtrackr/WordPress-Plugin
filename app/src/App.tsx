@@ -138,7 +138,10 @@ function App() {
       </div>
       {forms.length > 0 ? (
         forms.map((form) => (
-          <div key={form.id} className="flex items-center gap-12 border-b py-2">
+          <div
+            key={`${activeTab}-${form.id}`}
+            className="flex items-center gap-12 border-b py-2"
+          >
             <Label className="w-1/6">{form.id}</Label>
             <Label className="font-light w-1/6">{form.title}</Label>
             <Input

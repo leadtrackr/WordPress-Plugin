@@ -193,13 +193,14 @@ function leadtrackr_get_global_data()
              * Now loop over sub-forms for page-id.
              */
             foreach ($forms as $form) {
+                $form->page_id = strval($page_id);
                 $elementor_forms[] = $form;
             }
         }
 
         $elementor_forms_forms = array_map(function ($form) use ($elementor_forms_forms) {
             $form_data = array(
-                'id' => $form->id,
+                'id' => $form->page_id . "_" . $form->id,
                 'title' => $form->settings->form_name,
                 'sendToLeadTrackr' => false,
                 'customTitle' => '',
@@ -537,7 +538,7 @@ function leadtrackr_cf7_submission($contact_form)
         }
     }
 
-    foreach (lastNamePossibleNames as $possibleName) {
+    foreach (leadtrackr_lastNamePossibleNames as $possibleName) {
         if ($submission->get_posted_data($possibleName) && (($data['userData']['lastName'] ?? '') === '')) {
             $data['userData']['lastName'] = $submission->get_posted_data($possibleName);
             break;
@@ -553,7 +554,7 @@ function leadtrackr_cf7_submission($contact_form)
         }
     }
 
-    foreach (emailPossibleNames as $possibleName) {
+    foreach (leadtrackr_emailPossibleNames as $possibleName) {
         if ($submission->get_posted_data($possibleName) && (($data['userData']['email'] ?? '') === '')) {
             $data['userData']['email'] = $submission->get_posted_data($possibleName);
             break;
@@ -574,7 +575,7 @@ function leadtrackr_cf7_submission($contact_form)
         $data['userData']['email'] = $submission->get_posted_data($emailField['name']);
     }
 
-    foreach (phonePossibleNames as $possibleName) {
+    foreach (leadtrackr_phonePossibleNames as $possibleName) {
         if ($submission->get_posted_data($possibleName) && (($data['userData']['phone'] ?? '') === '')) {
             $data['userData']['phone'] = $submission->get_posted_data($possibleName);
             break;
@@ -599,7 +600,7 @@ function leadtrackr_cf7_submission($contact_form)
     }
 
 
-    foreach (companyPossibleNames as $possibleName) {
+    foreach (leadtrackr_companyPossibleNames as $possibleName) {
         if ($submission->get_posted_data($possibleName) && (($data['userData']['company'] ?? '') === '')) {
             $data['userData']['company'] = $submission->get_posted_data($possibleName);
             break;
@@ -638,13 +639,14 @@ function leadtrackr_elementor_forms_submission($record)
 {
     $leadtrackr_elementor_forms = get_option('leadtrackr_elementor_forms', array());
     $form_id = $record->get_form_settings('id');
+    $form_post_id = $record->get_form_settings('form_post_id');
 
-    if (!$form_id) {
+    if (!$form_id || !$form_post_id) {
         return;
     }
 
-    $leadtrackr_form = array_filter($leadtrackr_elementor_forms, function ($leadtrackr_form) use ($form_id) {
-        return $leadtrackr_form['id'] === $form_id;
+    $leadtrackr_form = array_filter($leadtrackr_elementor_forms, function ($leadtrackr_form) use ($form_id, $form_post_id) {
+        return $leadtrackr_form['id'] === $form_post_id . "_" . $form_id;
     });
 
     $leadtrackr_form = reset($leadtrackr_form);
@@ -656,7 +658,7 @@ function leadtrackr_elementor_forms_submission($record)
     $data = array(
         'projectId' => get_option('leadtrackr_project_id', ''),
         'formData' => array(
-            'formId' => $form_id,
+            'formId' => $form_post_id . "_" . $form_id,
             'formName' => $record->get_form_settings('form_name'),
             'customFormName' => $leadtrackr_form['customTitle'] ?? '',
             'formFields' => array()
