@@ -9,7 +9,7 @@
  * @wordpress-plugin
  * Plugin Name:       LeadTrackr
  * Description:       LeadTrackr description
- * Version:           1.0.1
+ * Version:           1.0.2
  * Author:            LeadTrackr
  * Author URI:        https://leadtrackr.io/
  * License:           GPL-2.0+
@@ -220,6 +220,32 @@ function leadtrackr_get_global_data()
         }, $elementor_forms);
     }
 
+    $wpforms_enabled = class_exists('WPForms');
+    $wpforms_forms_forms = get_option('leadtrackr_wpforms_forms', array());
+    if ($wpforms_enabled) {
+        $wpforms_forms = WPForms()->form->get();
+        $wpforms_forms_forms = array_map(function ($form) use ($wpforms_forms_forms) {
+            $form_data = array(
+                'id' => $form->ID,
+                'title' => $form->post_title,
+                'sendToLeadTrackr' => false,
+                'customTitle' => '',
+            );
+
+            $leadtrackr_form = array_filter($wpforms_forms_forms, function ($leadtrackr_form) use ($form_data) {
+                return $leadtrackr_form['id'] === $form_data['id'];
+            });
+
+            $leadtrackr_form = reset($leadtrackr_form);
+
+            if ($leadtrackr_form) {
+                return array_merge($form_data, $leadtrackr_form);
+            }
+
+            return $form_data;
+        }, $wpforms_forms);
+    }
+
     return array(
         'apiUrl' => LEADTRACKR_API_BASE_URL,
         'projectId' => get_option('leadtrackr_project_id', ''),
@@ -234,6 +260,10 @@ function leadtrackr_get_global_data()
         'elementor' => array(
             'enabled' => $elementor_enabled,
             'forms' => $elementor_forms_forms,
+        ),
+        'wpforms' => array(
+            'enabled' => $wpforms_enabled,
+            'forms' => $wpforms_forms_forms,
         ),
     );
 }
@@ -319,6 +349,18 @@ function leadtrackr_register_rest_api()
             ));
         },
         'permission_callback' => '__return_true',
+    ));
+
+    register_rest_route(LEADTRACKR_API_NAMESPACE, '/wpforms', array(
+        'methods' => 'POST',
+        'callback' => function (WP_REST_Request $request) {
+            $leadtrackr_wpforms_forms = $request->get_json_params()['forms'];
+            update_option('leadtrackr_wpforms_forms', $leadtrackr_wpforms_forms);
+
+            return new WP_REST_Response(array(
+                'success' => true,
+            ));
+        }
     ));
 }
 
@@ -710,3 +752,105 @@ function leadtrackr_elementor_forms_submission($record)
 }
 
 add_action('elementor_pro/forms/new_record', 'leadtrackr_elementor_forms_submission', 10, 1);
+
+/**
+ * Handle WPForms submission.
+ * 
+ * @param array $fields The form fields.
+ * @param array $entry The form entry.
+ * @param array $form_data The form data.
+ * @param int $entry_id The entry id.
+ */
+function leadtrackr_wpforms_forms_submission($fields, $entry, $form_data, $entry_id)
+{
+    $leadtrackr_wpforms_forms = get_option('leadtrackr_wpforms_forms', array());
+    $form_id = (int)$form_data['id'];
+
+    if (!$form_id) {
+        return;
+    }
+
+    $leadtrackr_form = array_filter($leadtrackr_wpforms_forms, function ($leadtrackr_form) use ($form_id) {
+        return $leadtrackr_form['id'] === $form_id;
+    });
+
+    $leadtrackr_form = reset($leadtrackr_form);
+
+    if (empty($leadtrackr_form) || !$leadtrackr_form['sendToLeadTrackr']) {
+        return;
+    }
+
+    $data = array(
+        'projectId' => get_option('leadtrackr_project_id', ''),
+        'formData' => array(
+            'formId' => $form_id,
+            'formName' => $form_data['settings']['form_title'],
+            'customFormName' => $leadtrackr_form['customTitle'] ?? '',
+            'formFields' => array()
+        ),
+        'userData' => array(),
+        'deviceData' => array(
+            'ipAddress' => $_SERVER['REMOTE_ADDR'],
+            'userAgent' => $_SERVER['HTTP_USER_AGENT'],
+        ),
+        'attributionData' => leadtrackr_parse_attributes_data(),
+    );
+
+    foreach ($entry['fields'] as $key => $value) {
+        if (is_array($value)) {
+            foreach ($value as $subKey => $subValue) {
+                $data['formData']['formFields'][$subKey] = $subValue;
+            }
+        } else {
+            $label = $fields[$key]['name'];
+            $data['formData']['formFields'][$label] = $value;
+
+            $type = $fields[$key]['type'];
+            if ($type === 'email') {
+                $data['userData']['email'] = $value;
+            }
+
+            if ($type === 'phone') {
+                $data['userData']['phone'] = $value;
+            }
+        }
+    }
+
+    foreach ($data['formData']['formFields'] as $key => $value) {
+        if (in_array($key, leadtrackr_firstNamePossibleNames)) {
+            $data['userData']['firstName'] = $value;
+        }
+
+        if (in_array($key, leadtrackr_lastNamePossibleNames)) {
+            $data['userData']['lastName'] = $value;
+        }
+
+        if (in_array($key, leadtrackr_emailPossibleNames)) {
+            $data['userData']['email'] = $value;
+        }
+
+        if (in_array($key, leadtrackr_phonePossibleNames)) {
+            $data['userData']['phone'] = $value;
+        }
+
+        if (in_array($key, leadtrackr_companyPossibleNames)) {
+            $data['userData']['company'] = $value;
+        }
+    }
+
+
+    $response = wp_remote_post(LEADTRACKR_LEAD_ENDPOINT, array(
+        'body' => wp_json_encode($data),
+        'headers' => array(
+            'Content-Type' => 'application/json',
+        ),
+    ));
+
+    if (is_wp_error($response)) {
+        error_log('LeadTrackr: Error sending WPForms submission to LeadTrackr: ' . $response->get_error_message());
+    }
+
+    return;
+}
+
+add_action('wpforms_process_complete', 'leadtrackr_wpforms_forms_submission', 10, 4);
