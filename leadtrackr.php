@@ -425,8 +425,8 @@ function leadtrackr_parse_attributes_data()
     if (isset($_COOKIE['_ga'])) {
         $sid_cookie = sanitize_text_field(wp_unslash($_COOKIE['_ga']));
         $parts = explode('.', $sid_cookie);
-        $stripped = implode(array_slice($parts, 2));
-        $attributes_data['sid'] = implode(array_slice(explode('$', $stripped), 0, 1));
+        $stripped = implode('.', array_slice($parts, 2));
+        $attributes_data['sid'] = explode('$', $stripped)[0];
     }
 
     return $attributes_data;
