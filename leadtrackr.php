@@ -414,8 +414,19 @@ function leadtrackr_parse_attributes_data()
         }
     }
 
+    if (isset($_COOKIE['It_channelflow'])) {
+        $attributes_data['It_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['It_channelflow']));
+    }
+
     if ($cid_cookie !== '') {
         $attributes_data['cid'] = $cid_cookie;
+    }
+
+    if (isset($_COOKIE['_ga'])) {
+        $sid_cookie = sanitize_text_field(wp_unslash($_COOKIE['_ga']));
+        $parts = explode('.', $sid_cookie);
+        $stripped = implode('.', array_slice($parts, 2));
+        $attributes_data['sid'] = explode('$', $stripped)[0];
     }
 
     return $attributes_data;
