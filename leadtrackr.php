@@ -9,7 +9,7 @@
  * @wordpress-plugin
  * Plugin Name:       LeadTrackr
  * Description:       LeadTrackr description
- * Version:           1.0.2
+ * Version:           1.0.3
  * Author:            LeadTrackr
  * Author URI:        https://leadtrackr.io/
  * License:           GPL-2.0+
@@ -414,10 +414,6 @@ function leadtrackr_parse_attributes_data()
         }
     }
 
-    if (isset($_COOKIE['It_channelflow'])) {
-        $attributes_data['It_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['It_channelflow']));
-    }
-
     if ($cid_cookie !== '') {
         $attributes_data['cid'] = $cid_cookie;
     }
@@ -470,37 +466,43 @@ function leadtrackr_gravity_forms_submission($entry, $form)
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
 
+    if (isset($_COOKIE['It_channelflow'])) {
+        $data['It_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['It_channelflow']));
+    }
+
     foreach ($form['fields'] as $field) {
-        $data['formData']['formFields'][] = array(
-            $field['label'] => $entry[$field['id']],
-        );
+        if (isset($entry[$field['id']])) {
+            $data['formData']['formFields'][] = array(
+                $field['label'] => $entry[$field['id']],
+            );
 
-        if (in_array($field['label'], leadtrackr_firstNamePossibleNames)) {
-            $data['userData']['firstName'] = $entry[$field['id']];
-        }
+            if (in_array($field['label'], leadtrackr_firstNamePossibleNames)) {
+                $data['userData']['firstName'] = $entry[$field['id']];
+            }
 
-        if (in_array($field['label'], leadtrackr_lastNamePossibleNames)) {
-            $data['userData']['lastName'] = $entry[$field['id']];
-        }
+            if (in_array($field['label'], leadtrackr_lastNamePossibleNames)) {
+                $data['userData']['lastName'] = $entry[$field['id']];
+            }
 
-        if ($field['inputType'] === 'email') {
-            $data['userData']['email'] = $entry[$field['id']];
-        }
+            if ($field['inputType'] === 'email') {
+                $data['userData']['email'] = $entry[$field['id']];
+            }
 
-        if (in_array($field['label'], leadtrackr_emailPossibleNames)) {
-            $data['userData']['email'] = $entry[$field['id']];
-        }
+            if (in_array($field['label'], leadtrackr_emailPossibleNames)) {
+                $data['userData']['email'] = $entry[$field['id']];
+            }
 
-        if ($field['inputType'] === 'tel') {
-            $data['userData']['phone'] = $entry[$field['id']];
-        }
+            if ($field['inputType'] === 'tel') {
+                $data['userData']['phone'] = $entry[$field['id']];
+            }
 
-        if (in_array($field['label'], leadtrackr_phonePossibleNames)) {
-            $data['userData']['phone'] = $entry[$field['id']];
-        }
+            if (in_array($field['label'], leadtrackr_phonePossibleNames)) {
+                $data['userData']['phone'] = $entry[$field['id']];
+            }
 
-        if (in_array($field['label'], leadtrackr_companyPossibleNames)) {
-            $data['userData']['company'] = $entry[$field['id']];
+            if (in_array($field['label'], leadtrackr_companyPossibleNames)) {
+                $data['userData']['company'] = $entry[$field['id']];
+            }
         }
     }
 
@@ -551,6 +553,10 @@ function leadtrackr_cf7_submission($contact_form)
         'deviceData' => array(),
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
+
+    if (isset($_COOKIE['It_channelflow'])) {
+        $data['It_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['It_channelflow']));
+    }
 
     if (isset($_SERVER['REMOTE_ADDR']) && !empty($_SERVER['REMOTE_ADDR'])) {
         $data['deviceData']['ipAddress'] = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR']));
@@ -724,6 +730,10 @@ function leadtrackr_elementor_forms_submission($record)
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
 
+    if (isset($_COOKIE['It_channelflow'])) {
+        $data['It_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['It_channelflow']));
+    }
+
     $fields = $record->get_formatted_data();
 
     foreach ($fields as $key => $value) {
@@ -806,6 +816,10 @@ function leadtrackr_wpforms_forms_submission($fields, $entry, $form_data, $entry
         ),
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
+
+    if (isset($_COOKIE['It_channelflow'])) {
+        $data['It_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['It_channelflow']));
+    }
 
     foreach ($entry['fields'] as $key => $value) {
         if (is_array($value)) {
