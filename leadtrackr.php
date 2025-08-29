@@ -414,10 +414,6 @@ function leadtrackr_parse_attributes_data()
         }
     }
 
-    if (isset($_COOKIE['It_channelflow'])) {
-        $attributes_data['It_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['It_channelflow']));
-    }
-
     if ($cid_cookie !== '') {
         $attributes_data['cid'] = $cid_cookie;
     }
@@ -469,6 +465,10 @@ function leadtrackr_gravity_forms_submission($entry, $form)
         ),
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
+
+    if (isset($_COOKIE['It_channelflow'])) {
+        $data['It_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['It_channelflow']));
+    }
 
     foreach ($form['fields'] as $field) {
         if (isset($entry[$field['id']])) {
@@ -553,6 +553,10 @@ function leadtrackr_cf7_submission($contact_form)
         'deviceData' => array(),
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
+
+    if (isset($_COOKIE['It_channelflow'])) {
+        $data['It_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['It_channelflow']));
+    }
 
     if (isset($_SERVER['REMOTE_ADDR']) && !empty($_SERVER['REMOTE_ADDR'])) {
         $data['deviceData']['ipAddress'] = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR']));
@@ -726,6 +730,10 @@ function leadtrackr_elementor_forms_submission($record)
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
 
+    if (isset($_COOKIE['It_channelflow'])) {
+        $data['It_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['It_channelflow']));
+    }
+
     $fields = $record->get_formatted_data();
 
     foreach ($fields as $key => $value) {
@@ -808,6 +816,10 @@ function leadtrackr_wpforms_forms_submission($fields, $entry, $form_data, $entry
         ),
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
+
+    if (isset($_COOKIE['It_channelflow'])) {
+        $data['It_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['It_channelflow']));
+    }
 
     foreach ($entry['fields'] as $key => $value) {
         if (is_array($value)) {
