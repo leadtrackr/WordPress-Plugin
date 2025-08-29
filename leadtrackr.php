@@ -9,7 +9,7 @@
  * @wordpress-plugin
  * Plugin Name:       LeadTrackr
  * Description:       LeadTrackr description
- * Version:           1.0.2
+ * Version:           1.0.3
  * Author:            LeadTrackr
  * Author URI:        https://leadtrackr.io/
  * License:           GPL-2.0+
@@ -471,36 +471,38 @@ function leadtrackr_gravity_forms_submission($entry, $form)
     );
 
     foreach ($form['fields'] as $field) {
-        $data['formData']['formFields'][] = array(
-            $field['label'] => $entry[$field['id']],
-        );
+        if (isset($entry[$field['id']])) {
+            $data['formData']['formFields'][] = array(
+                $field['label'] => $entry[$field['id']],
+            );
 
-        if (in_array($field['label'], leadtrackr_firstNamePossibleNames)) {
-            $data['userData']['firstName'] = $entry[$field['id']];
-        }
+            if (in_array($field['label'], leadtrackr_firstNamePossibleNames)) {
+                $data['userData']['firstName'] = $entry[$field['id']];
+            }
 
-        if (in_array($field['label'], leadtrackr_lastNamePossibleNames)) {
-            $data['userData']['lastName'] = $entry[$field['id']];
-        }
+            if (in_array($field['label'], leadtrackr_lastNamePossibleNames)) {
+                $data['userData']['lastName'] = $entry[$field['id']];
+            }
 
-        if ($field['inputType'] === 'email') {
-            $data['userData']['email'] = $entry[$field['id']];
-        }
+            if ($field['inputType'] === 'email') {
+                $data['userData']['email'] = $entry[$field['id']];
+            }
 
-        if (in_array($field['label'], leadtrackr_emailPossibleNames)) {
-            $data['userData']['email'] = $entry[$field['id']];
-        }
+            if (in_array($field['label'], leadtrackr_emailPossibleNames)) {
+                $data['userData']['email'] = $entry[$field['id']];
+            }
 
-        if ($field['inputType'] === 'tel') {
-            $data['userData']['phone'] = $entry[$field['id']];
-        }
+            if ($field['inputType'] === 'tel') {
+                $data['userData']['phone'] = $entry[$field['id']];
+            }
 
-        if (in_array($field['label'], leadtrackr_phonePossibleNames)) {
-            $data['userData']['phone'] = $entry[$field['id']];
-        }
+            if (in_array($field['label'], leadtrackr_phonePossibleNames)) {
+                $data['userData']['phone'] = $entry[$field['id']];
+            }
 
-        if (in_array($field['label'], leadtrackr_companyPossibleNames)) {
-            $data['userData']['company'] = $entry[$field['id']];
+            if (in_array($field['label'], leadtrackr_companyPossibleNames)) {
+                $data['userData']['company'] = $entry[$field['id']];
+            }
         }
     }
 
