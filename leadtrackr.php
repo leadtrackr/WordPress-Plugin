@@ -9,7 +9,7 @@
  * @wordpress-plugin
  * Plugin Name:       LeadTrackr
  * Description:       LeadTrackr description
- * Version:           1.0.3
+ * Version:           1.0.4
  * Author:            LeadTrackr
  * Author URI:        https://leadtrackr.io/
  * License:           GPL-2.0+
@@ -466,8 +466,8 @@ function leadtrackr_gravity_forms_submission($entry, $form)
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
 
-    if (isset($_COOKIE['It_channelflow'])) {
-        $data['It_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['It_channelflow']));
+    if (isset($_COOKIE['lt_channelflow'])) {
+        $data['lt_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['lt_channelflow']));
     }
 
     foreach ($form['fields'] as $field) {
@@ -554,8 +554,8 @@ function leadtrackr_cf7_submission($contact_form)
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
 
-    if (isset($_COOKIE['It_channelflow'])) {
-        $data['It_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['It_channelflow']));
+    if (isset($_COOKIE['lt_channelflow'])) {
+        $data['lt_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['lt_channelflow']));
     }
 
     if (isset($_SERVER['REMOTE_ADDR']) && !empty($_SERVER['REMOTE_ADDR'])) {
@@ -730,8 +730,8 @@ function leadtrackr_elementor_forms_submission($record)
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
 
-    if (isset($_COOKIE['It_channelflow'])) {
-        $data['It_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['It_channelflow']));
+    if (isset($_COOKIE['lt_channelflow'])) {
+        $data['lt_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['lt_channelflow']));
     }
 
     $fields = $record->get_formatted_data();
@@ -817,8 +817,8 @@ function leadtrackr_wpforms_forms_submission($fields, $entry, $form_data, $entry
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
 
-    if (isset($_COOKIE['It_channelflow'])) {
-        $data['It_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['It_channelflow']));
+    if (isset($_COOKIE['lt_channelflow'])) {
+        $data['lt_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['lt_channelflow']));
     }
 
     foreach ($entry['fields'] as $key => $value) {
