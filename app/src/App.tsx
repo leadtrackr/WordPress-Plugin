@@ -34,13 +34,17 @@ declare global {
         enabled: boolean;
         forms: LeadTrackrForm[];
       }
+      fluentForms: {
+        enabled: boolean;
+        forms: LeadTrackrForm[];
+      }
     };
   }
 }
 
 function App() {
   const [activeTab, setActiveTab] = useState<
-    "general" | "gravity-forms" | "contact-form-7" | "elementor" | "wpforms" | string
+    "general" | "gravity-forms" | "contact-form-7" | "elementor" | "wpforms" | "fluent-forms" | string
   >("general");
   const [projectId, setProjectId] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
@@ -71,7 +75,11 @@ function App() {
 
     if (activeTab === "wpforms") {
       setForms(window.wpData.wpforms.forms);
-    } 
+    }
+
+    if (activeTab === "fluent-forms") {
+      setForms(window.wpData.fluentForms.forms);
+    }
   }, [activeTab]);
 
   const onSaveProjectId = async () => {
@@ -229,6 +237,12 @@ function App() {
           >
             WPForms
           </TabsTrigger>
+          <TabsTrigger
+            disabled={!window.wpData.fluentForms.enabled}
+            value="fluent-forms"
+          >
+            Fluent Forms
+          </TabsTrigger>
         </TabsList>
 
         <div className="mt-2">
@@ -258,6 +272,7 @@ function App() {
           <TabsContent value="contact-form-7">{formsContent}</TabsContent>
           <TabsContent value="elementor">{formsContent}</TabsContent>
           <TabsContent value="wpforms">{formsContent}</TabsContent>
+          <TabsContent value="fluent-forms">{formsContent}</TabsContent>
           {activeTab !== "general" && (
             <Button disabled={loading} onClick={onSaveForms} className="mt-2">
               {loading ? "Saving..." : "Save"}
