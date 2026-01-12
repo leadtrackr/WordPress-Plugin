@@ -265,7 +265,6 @@ function leadtrackr_get_global_data()
             });
 
             $leadtrackr_form = reset($leadtrackr_form);
-
             
             if ($leadtrackr_form) {
                 // Merge and replace form based on ID in fluent_forms_forms
