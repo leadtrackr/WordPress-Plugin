@@ -9,7 +9,7 @@
  * @wordpress-plugin
  * Plugin Name:       LeadTrackr
  * Description:       LeadTrackr description
- * Version:           1.0.6
+ * Version:           1.0.7
  * Author:            LeadTrackr
  * Author URI:        https://leadtrackr.io/
  * License:           GPL-2.0+
@@ -24,7 +24,7 @@ if (!defined('ABSPATH')) {
 
 use FluentForm\App\Helpers\Helper;
 
-define('LEADTRACKR_PLUGIN_VERSION', '1.0.6');
+define('LEADTRACKR_PLUGIN_VERSION', '1.0.7');
 
 define('LEADTRACKR_API_NAMESPACE', 'leadtrackr/v1');
 define('LEADTRACKR_API_BASE_URL', home_url('/wp-json/' . LEADTRACKR_API_NAMESPACE));
