@@ -1053,16 +1053,62 @@ function leadtrackr_divi_contact_form_submission($processed_fields_values, $et_c
         return;
     }
 
-    wp_remote_post(LEADTRACKR_LEAD_ENDPOINT, array(
-        'body' => wp_json_encode(array(
-            'processedFieldsValues' => $processed_fields_values,
-            'etContactError' => $et_contact_error,
-            'contactFormInfo' => $contact_form_info,
-        )),
+    $data = array(
+        'projectId' => get_option('leadtrackr_project_id', ''),
+        'formData' => array(
+            'formId' => $contact_form_info['contact_form_id'],
+            'formName' => 'Divi Contact Form',
+            'customFormName' => '',
+            'formFields' => array(),
+        ),
+        'userData' => array(),
+        'deviceData' => array(
+            'ipAddress' => $_SERVER['REMOTE_ADDR'],
+            'userAgent' => $_SERVER['HTTP_USER_AGENT'],
+        ),
+        'attributionData' => leadtrackr_parse_attributes_data(),
+    );
+
+    if (isset($_COOKIE['lt_channelflow'])) {
+        $data['lt_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['lt_channelflow']));
+    }
+
+    foreach ($processed_fields_values as $key => $value) {
+        $data['formData']['formFields'][$key] = $value['value'];
+
+        if (in_array($key, leadtrackr_firstNamePossibleNames)) {
+            $data['userData']['firstName'] = $value['value'];
+        }
+
+        if (in_array($key, leadtrackr_lastNamePossibleNames)) {
+            $data['userData']['lastName'] = $value['value'];
+        }
+
+        if (in_array($key, leadtrackr_emailPossibleNames)) {
+            $data['userData']['email'] = $value['value'];
+        }
+
+        if (in_array($key, leadtrackr_phonePossibleNames)) {
+            $data['userData']['phone'] = $value['value'];
+        }
+
+        if (in_array($key, leadtrackr_companyPossibleNames)) {
+            $data['userData']['company'] = $value['value'];
+        }
+    }
+
+    $response = wp_remote_post(LEADTRACKR_LEAD_ENDPOINT, array(
+        'body' => wp_json_encode($data),
         'headers' => array(
             'Content-Type' => 'application/json',
         ),
     ));
+
+    if (is_wp_error($response)) {
+        error_log('LeadTrackr: Error sending Divi Contact Form submission to LeadTrackr: ' . $response->get_error_message());
+    }
+
+    return;
 }
 
 add_action('et_pb_contact_form_submit', 'leadtrackr_divi_contact_form_submission', 10, 3);
