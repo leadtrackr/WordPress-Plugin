@@ -28,8 +28,7 @@ define('LEADTRACKR_PLUGIN_VERSION', '1.0.7');
 
 define('LEADTRACKR_API_NAMESPACE', 'leadtrackr/v1');
 define('LEADTRACKR_API_BASE_URL', home_url('/wp-json/' . LEADTRACKR_API_NAMESPACE));
-// define('LEADTRACKR_LEAD_ENDPOINT', 'https://app.leadtrackr.io/api/leads/createLead');
-define('LEADTRACKR_LEAD_ENDPOINT', 'https://webhook.site/f2180f09-4c5f-4570-b75b-7c7f84ed1525');
+define('LEADTRACKR_LEAD_ENDPOINT', 'https://app.leadtrackr.io/api/leads/createLead');
 
 // Create the settings page
 function leadtrackr_create_menu()
