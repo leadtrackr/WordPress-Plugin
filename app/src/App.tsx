@@ -38,17 +38,22 @@ declare global {
         enabled: boolean;
         forms: LeadTrackrForm[];
       }
+      divi: {
+        enabled: boolean;
+        processContactForm: boolean;
+      }
     };
   }
 }
 
 function App() {
   const [activeTab, setActiveTab] = useState<
-    "general" | "gravity-forms" | "contact-form-7" | "elementor" | "wpforms" | "fluent-forms" | string
+    "general" | "gravity-forms" | "contact-form-7" | "elementor" | "wpforms" | "fluent-forms"  | "divi" | string
   >("general");
   const [projectId, setProjectId] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [forms, setForms] = useState<LeadTrackrForm[]>([]);
+  const [diviProcessContactForm, setDiviProcessContactForm] = useState<boolean>(window.wpData.divi.processContactForm);
 
   useEffect(() => {
     if (typeof window.wpData !== "undefined") {
@@ -79,6 +84,10 @@ function App() {
 
     if (activeTab === "fluent-forms") {
       setForms(window.wpData.fluentForms.forms);
+    }
+
+    if (activeTab === 'divi') {
+      setForms([]);
     }
   }, [activeTab]);
 
@@ -112,19 +121,24 @@ function App() {
 
   const onSaveForms = async () => {
     setLoading(true);
+
+    const data = activeTab === 'divi' ? {
+      processContactForm: diviProcessContactForm
+    } : {
+      forms: structuredClone(forms).map((f) => {
+        delete f.title;
+
+        return f;
+      }),
+    }
+
     const response = await fetch(`${window.wpData.apiUrl}/${activeTab}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       credentials: "include",
-      body: JSON.stringify({
-        forms: structuredClone(forms).map((f) => {
-          delete f.title;
-
-          return f;
-        }),
-      }),
+      body: JSON.stringify(data),
     });
 
     if (response.ok) {
@@ -144,7 +158,22 @@ function App() {
     setLoading(false);
   };
 
-  const formsContent = (
+  const formsContent = activeTab === 'divi' ? (
+    <>
+      <div className="flex items-center gap-12 py-2 w-1/2">
+        <Label className="w-1/2">Process Contact Form submissions</Label>
+        <Input
+          id={`process-contact-form`}
+          type="checkbox"
+          className="w-1/2"
+          checked={diviProcessContactForm}
+          onChange={(event) => {
+            setDiviProcessContactForm(event.target.checked);
+          }}
+        />
+      </div>
+    </>
+  ) : (
     <>
       <div className="flex items-center gap-12 border-b py-2">
         <Label className="w-1/6">ID</Label>
@@ -243,6 +272,12 @@ function App() {
           >
             Fluent Forms
           </TabsTrigger>
+          <TabsTrigger
+            // disabled={!window.wpData.divi.enabled}
+            value="divi"
+          >
+            Divi
+          </TabsTrigger>
         </TabsList>
 
         <div className="mt-2">
@@ -273,6 +308,7 @@ function App() {
           <TabsContent value="elementor">{formsContent}</TabsContent>
           <TabsContent value="wpforms">{formsContent}</TabsContent>
           <TabsContent value="fluent-forms">{formsContent}</TabsContent>
+          <TabsContent value="divi">{formsContent}</TabsContent>
           {activeTab !== "general" && (
             <Button disabled={loading} onClick={onSaveForms} className="mt-2">
               {loading ? "Saving..." : "Save"}

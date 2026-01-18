@@ -28,7 +28,8 @@ define('LEADTRACKR_PLUGIN_VERSION', '1.0.6');
 
 define('LEADTRACKR_API_NAMESPACE', 'leadtrackr/v1');
 define('LEADTRACKR_API_BASE_URL', home_url('/wp-json/' . LEADTRACKR_API_NAMESPACE));
-define('LEADTRACKR_LEAD_ENDPOINT', 'https://app.leadtrackr.io/api/leads/createLead');
+// define('LEADTRACKR_LEAD_ENDPOINT', 'https://app.leadtrackr.io/api/leads/createLead');
+define('LEADTRACKR_LEAD_ENDPOINT', 'https://webhook.site/f2180f09-4c5f-4570-b75b-7c7f84ed1525');
 
 // Create the settings page
 function leadtrackr_create_menu()
@@ -280,6 +281,10 @@ function leadtrackr_get_global_data()
         }
     }
 
+    $current_theme = wp_get_theme();
+    $divi_theme_enabled = $current_theme->get('Name') === 'Divi';
+    $divi_process_contact_form = get_option('leadtrackr_divi_process_contact_form', false);
+
     return array(
         'apiUrl' => LEADTRACKR_API_BASE_URL,
         'projectId' => get_option('leadtrackr_project_id', ''),
@@ -302,6 +307,10 @@ function leadtrackr_get_global_data()
         'fluentForms' => array(
             'enabled' => $fluent_forms_enabled,
             'forms' => $fluent_forms_forms,
+        ),
+        'divi' => array(
+            'enabled' => $divi_theme_enabled,
+            'processContactForm' => $divi_process_contact_form,
         ),
     );
 }
@@ -406,6 +415,18 @@ function leadtrackr_register_rest_api()
         'callback' => function (WP_REST_Request $request) {
             $leadtrackr_fluent_forms_forms = $request->get_json_params()['forms'];
             update_option('leadtrackr_fluent_forms_forms', $leadtrackr_fluent_forms_forms);
+
+            return new WP_REST_Response(array(
+                'success' => true,
+            ));
+        },
+    ));
+
+    register_rest_route(LEADTRACKR_API_NAMESPACE, '/divi', array(
+        'methods' => 'POST',
+        'callback' => function (WP_REST_Request $request) {
+            $process_contact_form = $request->get_json_params()['processContactForm'];
+            update_option('leadtrackr_divi_process_contact_form', $process_contact_form);
 
             return new WP_REST_Response(array(
                 'success' => true,
@@ -1024,3 +1045,24 @@ function leadtrackr_fluent_forms_submission($submissionId, $formData, $form) {
 }
 
 add_action('fluentform/submission_inserted', 'leadtrackr_fluent_forms_submission', 10, 3);
+
+function leadtrackr_divi_contact_form_submission($processed_fields_values, $et_contact_error, $contact_form_info) {
+    $divi_process_contact_form = get_option('leadtrackr_divi_process_contact_form', false);
+
+    if (!$divi_process_contact_form) {
+        return;
+    }
+
+    wp_remote_post(LEADTRACKR_LEAD_ENDPOINT, array(
+        'body' => wp_json_encode(array(
+            'processedFieldsValues' => $processed_fields_values,
+            'etContactError' => $et_contact_error,
+            'contactFormInfo' => $contact_form_info,
+        )),
+        'headers' => array(
+            'Content-Type' => 'application/json',
+        ),
+    ));
+}
+
+add_action('et_pb_contact_form_submit', 'leadtrackr_divi_contact_form_submission', 10, 3);
