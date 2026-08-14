@@ -8,7 +8,7 @@
  *
  * @wordpress-plugin
  * Plugin Name:       LeadTrackr
- * Description:       LeadTrackr description
+ * Description:       Capture form submissions and send lead data to LeadTrackr for offline conversion tracking, attribution, and channel flow analysis.
  * Version:           1.0.7
  * Author:            LeadTrackr
  * Author URI:        https://leadtrackr.io/
@@ -22,13 +22,70 @@ if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly
 }
 
-use FluentForm\App\Helpers\Helper;
-
 define('LEADTRACKR_PLUGIN_VERSION', '1.0.7');
 
 define('LEADTRACKR_API_NAMESPACE', 'leadtrackr/v1');
-define('LEADTRACKR_API_BASE_URL', home_url('/wp-json/' . LEADTRACKR_API_NAMESPACE));
-define('LEADTRACKR_LEAD_ENDPOINT', 'https://app.leadtrackr.io/api/leads/createLead');
+define('LEADTRACKR_LEAD_ENDPOINT_LEGACY', 'https://app.leadtrackr.io/api/leads/createLead');
+define('LEADTRACKR_LEAD_ENDPOINT', 'https://app.leadtrackr.io/api/leads/createServerSideLead');
+// Pinned to the major version, so patches arrive without a plugin release but
+// a breaking change never does.
+define('LEADTRACKR_LEADBOT_SRC', 'https://cdn.jsdelivr.net/gh/leadtrackr/leadtrackr-leadbot@1/dist/lt-leadbot.min.js');
+
+/**
+ * Sites that already ran this plugin must not have their behaviour changed by an
+ * update: Channel Flow stays off until they choose it, and the API token stays
+ * optional. New installs get Channel Flow on and the token required.
+ *
+ * Decided once, on the first load after this version lands, by looking for
+ * settings that only exist if the plugin was configured before.
+ */
+function leadtrackr_bootstrap_install_state()
+{
+    if (get_option('leadtrackr_install_state', false) !== false) {
+        return;
+    }
+
+    $existing_settings = array(
+        'leadtrackr_project_id',
+        'leadtrackr_gf_forms',
+        'leadtrackr_cf7_forms',
+        'leadtrackr_elementor_forms',
+        'leadtrackr_wpforms_forms',
+        'leadtrackr_fluent_forms_forms',
+        'leadtrackr_divi_process_contact_form',
+    );
+
+    $is_upgrade = false;
+    foreach ($existing_settings as $option) {
+        if (get_option($option, null) !== null) {
+            $is_upgrade = true;
+            break;
+        }
+    }
+
+    add_option('leadtrackr_install_state', $is_upgrade ? 'upgraded' : 'fresh');
+    // add_option leaves an existing explicit choice alone, so this only fills in
+    // the starting position.
+    add_option('leadtrackr_channelflow_enabled', !$is_upgrade);
+}
+add_action('plugins_loaded', 'leadtrackr_bootstrap_install_state');
+
+/** True for sites that were already running the plugin before this version. */
+function leadtrackr_is_legacy_install()
+{
+    return get_option('leadtrackr_install_state', 'fresh') === 'upgraded';
+}
+
+function leadtrackr_channelflow_enabled()
+{
+    return (bool)get_option('leadtrackr_channelflow_enabled', !leadtrackr_is_legacy_install());
+}
+
+/** Required for new installs, optional for sites that upgraded into it. */
+function leadtrackr_api_token_required()
+{
+    return !leadtrackr_is_legacy_install();
+}
 
 // Create the settings page
 function leadtrackr_create_menu()
@@ -46,6 +103,138 @@ function leadtrackr_create_menu()
     );
 }
 add_action('admin_menu', 'leadtrackr_create_menu');
+
+/**
+ * Defaults for the LeadBot embed. Only keys that differ from these are written
+ * to the page, so a site that changes nothing ships no configuration at all.
+ */
+function leadtrackr_leadbot_defaults()
+{
+    return array(
+        'enabled' => false,
+        'companyName' => '',
+        'agentName' => '',
+        'agentPhoto' => '',
+        'greeting' => '',
+        'phone' => '',
+        'whatsapp' => '',
+        'launcher' => true,
+        'teaser' => true,
+        'whatsappInterceptor' => false,
+        'whatsappPhoneQuestion' => true,
+        'callTracking' => false,
+        'position' => 'right',
+        'offsetBottom' => 20,
+        'offsetSide' => 20,
+        'language' => 'auto',
+        'responseTimeText' => '',
+        'themePrimary' => '',
+        'themePrimaryHover' => '',
+        'themeRadius' => 16,
+    );
+}
+
+function leadtrackr_get_leadbot_settings()
+{
+    $saved = get_option('leadtrackr_leadbot', array());
+    if (!is_array($saved)) {
+        $saved = array();
+    }
+    return array_merge(leadtrackr_leadbot_defaults(), $saved);
+}
+
+/**
+ * Translate the plugin's settings into the config the LeadBot expects. Empty
+ * values are omitted rather than sent as empty strings, so the LeadBot falls
+ * back to its own defaults instead of rendering blanks.
+ */
+function leadtrackr_leadbot_config($settings, $project_id)
+{
+    $config = array('projectId' => $project_id);
+
+    foreach (array('companyName', 'agentName', 'agentPhoto', 'greeting', 'phone', 'whatsapp') as $key) {
+        if ($settings[$key] !== '') {
+            $config[$key] = $settings[$key];
+        }
+    }
+
+    if (!$settings['launcher']) $config['launcher'] = false;
+    if (!$settings['teaser']) $config['teaser'] = false;
+    if ($settings['whatsappInterceptor']) $config['whatsappInterceptor'] = true;
+    if (!$settings['whatsappPhoneQuestion']) $config['whatsappPhoneQuestion'] = false;
+    if ($settings['callTracking']) $config['callTracking'] = true;
+    if ($settings['position'] === 'left') $config['position'] = 'left';
+    if ($settings['language'] !== 'auto') $config['language'] = $settings['language'];
+    if ($settings['responseTimeText'] !== '') $config['responseTimeText'] = $settings['responseTimeText'];
+
+    if ((int)$settings['offsetBottom'] !== 20 || (int)$settings['offsetSide'] !== 20) {
+        $config['offset'] = array(
+            'bottom' => (int)$settings['offsetBottom'],
+            'side' => (int)$settings['offsetSide'],
+        );
+    }
+
+    $theme = array();
+    if ($settings['themePrimary'] !== '') $theme['primary'] = $settings['themePrimary'];
+    if ($settings['themePrimaryHover'] !== '') $theme['primaryHover'] = $settings['themePrimaryHover'];
+    if ((int)$settings['themeRadius'] !== 16) $theme['radius'] = (int)$settings['themeRadius'];
+    if (!empty($theme)) $config['theme'] = $theme;
+
+    return $config;
+}
+
+function leadtrackr_enqueue_frontend_scripts()
+{
+    if (is_admin()) {
+        return;
+    }
+
+    if (leadtrackr_channelflow_enabled()) {
+        $utm_config = get_option('leadtrackr_utm_params', array());
+
+        // In the head, not the footer: the channel has to be resolved from the
+        // referrer and query string before the visitor can navigate away.
+        wp_enqueue_script(
+            'leadtrackr-channelflow',
+            plugin_dir_url(__FILE__) . 'assets/channelflow.js',
+            array(),
+            LEADTRACKR_PLUGIN_VERSION,
+            false
+        );
+
+        if (!empty($utm_config)) {
+            wp_add_inline_script(
+                'leadtrackr-channelflow',
+                'window.leadtrackrChannelFlowConfig = ' . wp_json_encode($utm_config) . ';',
+                'before'
+            );
+        }
+    }
+
+    $leadbot = leadtrackr_get_leadbot_settings();
+    $project_id = get_option('leadtrackr_project_id', '');
+
+    // Nothing is requested from the CDN unless the LeadBot is switched on, so a
+    // site that does not use it pays nothing for it.
+    if (!$leadbot['enabled'] || $project_id === '') {
+        return;
+    }
+
+    wp_enqueue_script(
+        'leadtrackr-leadbot',
+        LEADTRACKR_LEADBOT_SRC,
+        array(),
+        null,
+        array('strategy' => 'async', 'in_footer' => true)
+    );
+
+    wp_add_inline_script(
+        'leadtrackr-leadbot',
+        'window.ltLeadBotConfig = ' . wp_json_encode(leadtrackr_leadbot_config($leadbot, $project_id)) . ';',
+        'before'
+    );
+}
+add_action('wp_enqueue_scripts', 'leadtrackr_enqueue_frontend_scripts');
 
 function leadtrackr_list_recursive_iterate_elements($elements, &$forms)
 {
@@ -80,12 +269,26 @@ function leadtrackr_list_get_elementor_forms($offset = 0)
     /**
      * Get the forms now.
      */
-    $results = $wpdb->get_results("SELECT a.ID, b.meta_value FROM $wpdb->posts a, $wpdb->postmeta b WHERE a.post_type NOT IN ('draft', 'revision') AND a.post_status = 'publish' AND a.ID = b.post_id AND b.meta_key = '_elementor_data' LIMIT 100000");
+    // Filtering on the widget type in SQL keeps this from loading every
+    // _elementor_data blob on the site — often hundreds of KB per page — just
+    // to find the handful that contain a form.
+    $results = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT a.ID, b.meta_value
+             FROM {$wpdb->posts} a
+             INNER JOIN {$wpdb->postmeta} b ON a.ID = b.post_id
+             WHERE a.post_status = 'publish'
+               AND b.meta_key = '_elementor_data'
+               AND b.meta_value LIKE %s
+             LIMIT 500",
+            '%' . $wpdb->esc_like('"widgetType":"form"') . '%'
+        )
+    );
     /**
      * Check if empty.
      */
     if (empty($results)) {
-        return null;
+        return array();
     }
     /**
      * Set vars.
@@ -128,6 +331,7 @@ function leadtrackr_list_get_elementor_forms($offset = 0)
 function leadtrackr_get_global_data()
 {
     $gravity_forms_enabled = class_exists('GFForms');
+    $gf_track_all = (bool)get_option('leadtrackr_gf_track_all', false);
     $gravity_forms_forms = get_option('leadtrackr_gf_forms', array());
     if ($gravity_forms_enabled) {
         $gf_forms = GFAPI::get_forms();
@@ -157,6 +361,7 @@ function leadtrackr_get_global_data()
     }
 
     $cf7_enabled = class_exists('WPCF7_ContactForm');
+    $cf7_track_all = (bool)get_option('leadtrackr_cf7_track_all', false);
     $cf7_forms_forms = get_option('leadtrackr_cf7_forms', array());
     if ($cf7_enabled) {
         $cf7_forms = WPCF7_ContactForm::find();
@@ -184,6 +389,7 @@ function leadtrackr_get_global_data()
     }
 
     $elementor_enabled = is_plugin_active('elementor-pro/elementor-pro.php');
+    $elementor_track_all = (bool)get_option('leadtrackr_elementor_track_all', false);
     $elementor_forms_forms = get_option('leadtrackr_elementor_forms', array());
     if ($elementor_enabled) {
         $results = leadtrackr_list_get_elementor_forms();
@@ -191,9 +397,6 @@ function leadtrackr_get_global_data()
         $elementor_forms = [];
 
         foreach ($results as $page_id => $forms) {
-            /**
-             * Now loop over sub-forms for page-id.
-             */
             foreach ($forms as $form) {
                 $form->page_id = strval($page_id);
                 $elementor_forms[] = $form;
@@ -223,6 +426,7 @@ function leadtrackr_get_global_data()
     }
 
     $wpforms_enabled = class_exists('WPForms');
+    $wpforms_track_all = (bool)get_option('leadtrackr_wpforms_track_all', false);
     $wpforms_forms_forms = get_option('leadtrackr_wpforms_forms', array());
     if ($wpforms_enabled) {
         $wpforms_forms = WPForms()->form->get();
@@ -249,9 +453,10 @@ function leadtrackr_get_global_data()
     }
 
     $fluent_forms_enabled = is_plugin_active('fluentform/fluentform.php');
+    $fluent_track_all = (bool)get_option('leadtrackr_fluent_track_all', false);
     $fluent_forms_forms = get_option('leadtrackr_fluent_forms_forms', array());
     if ($fluent_forms_enabled) {
-        $ff_forms = Helper::getForms(); // all forms with form id as keyed array
+        $ff_forms = \FluentForm\App\Helpers\Helper::getForms();
         foreach ($ff_forms as $id => $form_name) {
             $form_data = array(
                 'id' => $id,
@@ -280,37 +485,72 @@ function leadtrackr_get_global_data()
         }
     }
 
+    // Matching only the active theme's name misses the two most common Divi
+    // setups: a child theme (named "Divi Child") and the Divi Builder plugin
+    // running on top of an unrelated theme.
     $current_theme = wp_get_theme();
-    $divi_theme_enabled = $current_theme->get('Name') === 'Divi';
+    $divi_theme_enabled =
+        $current_theme->get('Name') === 'Divi' ||
+        $current_theme->get_template() === 'Divi' ||
+        defined('ET_BUILDER_PLUGIN_ACTIVE');
     $divi_process_contact_form = get_option('leadtrackr_divi_process_contact_form', false);
 
+    $utm_params = get_option('leadtrackr_utm_params', array());
+
     return array(
-        'apiUrl' => LEADTRACKR_API_BASE_URL,
+        // rest_url, not a hand-built /wp-json path: sites on plain permalinks
+        // serve the REST API from /?rest_route= and would 404 on every save.
+        'apiUrl' => esc_url_raw(rest_url(LEADTRACKR_API_NAMESPACE)),
+        // Cookie authentication on the REST API is only accepted together with
+        // this nonce. Without it every save comes back 401 rest_forbidden,
+        // because WordPress treats the request as logged out.
+        'nonce' => wp_create_nonce('wp_rest'),
         'projectId' => get_option('leadtrackr_project_id', ''),
+        // Whether a token exists, never the token itself: wp_localize_script
+        // prints this straight into the page source, which would undo the
+        // point of encrypting it at rest.
+        'apiTokenSet' => leadtrackr_decrypt_token(get_option('leadtrackr_api_token', '')) !== '',
+        'channelFlowEnabled' => leadtrackr_channelflow_enabled(),
+        'apiTokenRequired' => leadtrackr_api_token_required(),
+        'utmParams' => array(
+            'sourceParam' => isset($utm_params['sourceParam']) ? $utm_params['sourceParam'] : 'utm_source',
+            'mediumParam' => isset($utm_params['mediumParam']) ? $utm_params['mediumParam'] : 'utm_medium',
+            'campaignParam' => isset($utm_params['campaignParam']) ? $utm_params['campaignParam'] : 'utm_campaign',
+            'contentParam' => isset($utm_params['contentParam']) ? $utm_params['contentParam'] : 'utm_content',
+            'termParam' => isset($utm_params['termParam']) ? $utm_params['termParam'] : 'utm_term',
+        ),
         'gravityForms' => array(
             'enabled' => $gravity_forms_enabled,
             'forms' => $gravity_forms_forms,
+            'trackAll' => (bool)get_option('leadtrackr_gf_track_all', false),
         ),
         'cf7' => array(
             'enabled' => $cf7_enabled,
             'forms' => $cf7_forms_forms,
+            'trackAll' => (bool)get_option('leadtrackr_cf7_track_all', false),
         ),
         'elementor' => array(
             'enabled' => $elementor_enabled,
             'forms' => $elementor_forms_forms,
+            'trackAll' => (bool)get_option('leadtrackr_elementor_track_all', false),
         ),
         'wpforms' => array(
             'enabled' => $wpforms_enabled,
             'forms' => $wpforms_forms_forms,
+            'trackAll' => (bool)get_option('leadtrackr_wpforms_track_all', false),
         ),
         'fluentForms' => array(
             'enabled' => $fluent_forms_enabled,
             'forms' => $fluent_forms_forms,
+            'trackAll' => (bool)get_option('leadtrackr_fluent_track_all', false),
         ),
         'divi' => array(
             'enabled' => $divi_theme_enabled,
             'processContactForm' => $divi_process_contact_form,
         ),
+        'leadbot' => leadtrackr_get_leadbot_settings(),
+        'leadbotSrc' => LEADTRACKR_LEADBOT_SRC,
+        'leadbotPreviewEndpoint' => esc_url_raw(rest_url(LEADTRACKR_API_NAMESPACE . '/leadbot-preview-lead')),
     );
 }
 
@@ -340,97 +580,322 @@ function leadtrackr_enqueue_scripts()
     );
 
 
-    wp_localize_script('leadtrackr-app-js', 'wpData', leadtrackr_get_global_data());
+    // Not wp_localize_script: that casts every top-level scalar to a string, so
+    // booleans arrive in JavaScript as "1" and "" and any strict comparison —
+    // or a snapshot used to detect unsaved changes — silently misbehaves.
+    wp_add_inline_script(
+        'leadtrackr-app-js',
+        'window.wpData = ' . wp_json_encode(leadtrackr_get_global_data()) . ';',
+        'before'
+    );
 }
 
+
+/**
+ * These endpoints write the project ID and API token, which decide where leads
+ * are sent. That is the same bar as the settings page itself, which is
+ * registered with manage_options — allowing edit_others_posts would let an
+ * editor repoint every lead on the site without being able to open the page.
+ */
+function leadtrackr_check_admin_permission()
+{
+    return current_user_can('manage_options');
+}
+
+function leadtrackr_encrypt_token($token)
+{
+    if (empty($token)) {
+        return '';
+    }
+    $key = wp_salt('auth');
+    $iv = substr(hash('sha256', wp_salt('secure_auth')), 0, 16);
+    $encrypted = openssl_encrypt($token, 'AES-256-CBC', $key, 0, $iv);
+    return $encrypted !== false ? base64_encode($encrypted) : '';
+}
+
+function leadtrackr_decrypt_token($encrypted_token)
+{
+    if (empty($encrypted_token)) {
+        return '';
+    }
+    $key = wp_salt('auth');
+    $iv = substr(hash('sha256', wp_salt('secure_auth')), 0, 16);
+    $decoded = base64_decode($encrypted_token);
+    if ($decoded === false) {
+        return $encrypted_token;
+    }
+    $decrypted = openssl_decrypt($decoded, 'AES-256-CBC', $key, 0, $iv);
+    return $decrypted !== false ? $decrypted : '';
+}
+
+/**
+ * Whitelist the LeadBot settings. Anything not listed here never reaches the
+ * option, so a crafted request cannot inject extra keys into the config that
+ * gets printed onto every page of the site.
+ */
+function leadtrackr_sanitize_leadbot_settings($raw)
+{
+    $defaults = leadtrackr_leadbot_defaults();
+    if (!is_array($raw)) {
+        return $defaults;
+    }
+
+    $clean = $defaults;
+
+    foreach (array('companyName', 'agentName', 'greeting', 'phone', 'whatsapp', 'responseTimeText') as $key) {
+        if (isset($raw[$key])) {
+            $clean[$key] = sanitize_text_field($raw[$key]);
+        }
+    }
+
+    if (isset($raw['agentPhoto'])) {
+        $clean['agentPhoto'] = esc_url_raw($raw['agentPhoto']);
+    }
+
+    foreach (array('enabled', 'launcher', 'teaser', 'whatsappInterceptor', 'whatsappPhoneQuestion', 'callTracking') as $key) {
+        if (isset($raw[$key])) {
+            $clean[$key] = (bool)$raw[$key];
+        }
+    }
+
+    if (isset($raw['position'])) {
+        $clean['position'] = $raw['position'] === 'left' ? 'left' : 'right';
+    }
+    if (isset($raw['language'])) {
+        $clean['language'] = in_array($raw['language'], array('nl', 'en'), true) ? $raw['language'] : 'auto';
+    }
+
+    foreach (array('offsetBottom', 'offsetSide') as $key) {
+        if (isset($raw[$key])) {
+            $clean[$key] = max(0, min(400, (int)$raw[$key]));
+        }
+    }
+    if (isset($raw['themeRadius'])) {
+        $clean['themeRadius'] = max(0, min(40, (int)$raw['themeRadius']));
+    }
+
+    // Hex colours only: these end up in inline styles inside the LeadBot.
+    foreach (array('themePrimary', 'themePrimaryHover') as $key) {
+        if (isset($raw[$key])) {
+            $colour = sanitize_hex_color($raw[$key]);
+            $clean[$key] = $colour ? $colour : '';
+        }
+    }
+
+    return $clean;
+}
+
+function leadtrackr_sanitize_forms_data($raw_forms)
+{
+    if (!is_array($raw_forms)) {
+        return array();
+    }
+
+    $sanitized = array();
+    foreach ($raw_forms as $form) {
+        if (!is_array($form) || !isset($form['id'])) {
+            continue;
+        }
+
+        $sanitized[] = array(
+            'id' => is_int($form['id']) ? $form['id'] : sanitize_text_field($form['id']),
+            'sendToLeadTrackr' => !empty($form['sendToLeadTrackr']),
+            'customTitle' => isset($form['customTitle']) ? sanitize_text_field($form['customTitle']) : '',
+        );
+    }
+
+    return $sanitized;
+}
 
 function leadtrackr_register_rest_api()
 {
     register_rest_route(LEADTRACKR_API_NAMESPACE, '/project-id', array(
         'methods' => 'POST',
         'callback' => function (WP_REST_Request $request) {
-            $project_id = $request->get_json_params()['project_id'];
+            $params = $request->get_json_params();
+            $project_id = sanitize_text_field($params['project_id'] ?? '');
             update_option('leadtrackr_project_id', $project_id);
             return new WP_REST_Response(array(
                 'success' => true,
             ));
         },
-        'permission_callback' => '__return_true',
+        'permission_callback' => 'leadtrackr_check_admin_permission',
+    ));
+
+    register_rest_route(LEADTRACKR_API_NAMESPACE, '/api-token', array(
+        'methods' => 'POST',
+        'callback' => function (WP_REST_Request $request) {
+            $params = $request->get_json_params();
+            $api_token = sanitize_text_field($params['api_token'] ?? '');
+            update_option('leadtrackr_api_token', leadtrackr_encrypt_token($api_token));
+            return new WP_REST_Response(array(
+                'success' => true,
+            ));
+        },
+        'permission_callback' => 'leadtrackr_check_admin_permission',
+    ));
+
+    register_rest_route(LEADTRACKR_API_NAMESPACE, '/channelflow-settings', array(
+        'methods' => 'POST',
+        'callback' => function (WP_REST_Request $request) {
+            $params = $request->get_json_params();
+            update_option('leadtrackr_channelflow_enabled', !empty($params['enabled']));
+
+            $utm_params = array();
+            if (isset($params['utmParams'])) {
+                $allowed_keys = array('sourceParam', 'mediumParam', 'campaignParam', 'contentParam', 'termParam');
+                foreach ($allowed_keys as $key) {
+                    if (isset($params['utmParams'][$key])) {
+                        $utm_params[$key] = sanitize_text_field($params['utmParams'][$key]);
+                    }
+                }
+            }
+            update_option('leadtrackr_utm_params', $utm_params);
+
+            return new WP_REST_Response(array(
+                'success' => true,
+            ));
+        },
+        'permission_callback' => 'leadtrackr_check_admin_permission',
+    ));
+
+    // The settings-page preview points the LeadBot's endpoint here instead of at
+    // the real API, so trying out the form never creates a live lead.
+    register_rest_route(LEADTRACKR_API_NAMESPACE, '/leadbot-preview-lead', array(
+        'methods' => 'POST',
+        'callback' => function () {
+            return new WP_REST_Response(array('message' => 'Preview only, nothing was stored'), 200);
+        },
+        'permission_callback' => 'leadtrackr_check_admin_permission',
+    ));
+
+    register_rest_route(LEADTRACKR_API_NAMESPACE, '/leadbot', array(
+        'methods' => 'POST',
+        'callback' => function (WP_REST_Request $request) {
+            $params = $request->get_json_params();
+            $settings = leadtrackr_sanitize_leadbot_settings($params['leadbot'] ?? array());
+            update_option('leadtrackr_leadbot', $settings);
+
+            return new WP_REST_Response(array(
+                'success' => true,
+                'leadbot' => $settings,
+            ));
+        },
+        'permission_callback' => 'leadtrackr_check_admin_permission',
+    ));
+
+    register_rest_route(LEADTRACKR_API_NAMESPACE, '/track-all', array(
+        'methods' => 'POST',
+        'callback' => function (WP_REST_Request $request) {
+            $params = $request->get_json_params();
+            $builder = sanitize_text_field($params['builder'] ?? '');
+            $enabled = !empty($params['enabled']);
+
+            $allowed_builders = array(
+                'gravity-forms' => 'leadtrackr_gf_track_all',
+                'contact-form-7' => 'leadtrackr_cf7_track_all',
+                'elementor' => 'leadtrackr_elementor_track_all',
+                'wpforms' => 'leadtrackr_wpforms_track_all',
+                'fluent-forms' => 'leadtrackr_fluent_track_all',
+            );
+
+            if (!isset($allowed_builders[$builder])) {
+                return new WP_REST_Response(array(
+                    'success' => false,
+                    'message' => 'Invalid builder',
+                ), 400);
+            }
+
+            update_option($allowed_builders[$builder], $enabled);
+            return new WP_REST_Response(array(
+                'success' => true,
+            ));
+        },
+        'permission_callback' => 'leadtrackr_check_admin_permission',
     ));
 
     register_rest_route(LEADTRACKR_API_NAMESPACE, '/gravity-forms', array(
         'methods' => 'POST',
         'callback' => function (WP_REST_Request $request) {
-            $leadtrackr_gf_forms = $request->get_json_params()['forms'];
-            update_option('leadtrackr_gf_forms', $leadtrackr_gf_forms);
+            $params = $request->get_json_params();
+            $forms = leadtrackr_sanitize_forms_data($params['forms'] ?? array());
+            update_option('leadtrackr_gf_forms', $forms);
 
             return new WP_REST_Response(array(
                 'success' => true,
             ));
         },
-        'permission_callback' => '__return_true',
+        'permission_callback' => 'leadtrackr_check_admin_permission',
     ));
 
     register_rest_route(LEADTRACKR_API_NAMESPACE, '/contact-form-7', array(
         'methods' => 'POST',
         'callback' => function (WP_REST_Request $request) {
-            $leadtrackr_cf7_forms = $request->get_json_params()['forms'];
-            update_option('leadtrackr_cf7_forms', $leadtrackr_cf7_forms);
+            $params = $request->get_json_params();
+            $forms = leadtrackr_sanitize_forms_data($params['forms'] ?? array());
+            update_option('leadtrackr_cf7_forms', $forms);
 
             return new WP_REST_Response(array(
                 'success' => true,
             ));
         },
-        'permission_callback' => '__return_true',
+        'permission_callback' => 'leadtrackr_check_admin_permission',
     ));
 
     register_rest_route(LEADTRACKR_API_NAMESPACE, '/elementor', array(
         'methods' => 'POST',
         'callback' => function (WP_REST_Request $request) {
-            $leadtrackr_elementor_forms = $request->get_json_params()['forms'];
-            update_option('leadtrackr_elementor_forms', $leadtrackr_elementor_forms);
+            $params = $request->get_json_params();
+            $forms = leadtrackr_sanitize_forms_data($params['forms'] ?? array());
+            update_option('leadtrackr_elementor_forms', $forms);
 
             return new WP_REST_Response(array(
                 'success' => true,
             ));
         },
-        'permission_callback' => '__return_true',
+        'permission_callback' => 'leadtrackr_check_admin_permission',
     ));
 
     register_rest_route(LEADTRACKR_API_NAMESPACE, '/wpforms', array(
         'methods' => 'POST',
         'callback' => function (WP_REST_Request $request) {
-            $leadtrackr_wpforms_forms = $request->get_json_params()['forms'];
-            update_option('leadtrackr_wpforms_forms', $leadtrackr_wpforms_forms);
-
-            return new WP_REST_Response(array(
-                'success' => true,
-            ));
-        }
-    ));
-
-    register_rest_route(LEADTRACKR_API_NAMESPACE, '/fluent-forms', array(
-        'methods' => 'POST',
-        'callback' => function (WP_REST_Request $request) {
-            $leadtrackr_fluent_forms_forms = $request->get_json_params()['forms'];
-            update_option('leadtrackr_fluent_forms_forms', $leadtrackr_fluent_forms_forms);
+            $params = $request->get_json_params();
+            $forms = leadtrackr_sanitize_forms_data($params['forms'] ?? array());
+            update_option('leadtrackr_wpforms_forms', $forms);
 
             return new WP_REST_Response(array(
                 'success' => true,
             ));
         },
+        'permission_callback' => 'leadtrackr_check_admin_permission',
+    ));
+
+    register_rest_route(LEADTRACKR_API_NAMESPACE, '/fluent-forms', array(
+        'methods' => 'POST',
+        'callback' => function (WP_REST_Request $request) {
+            $params = $request->get_json_params();
+            $forms = leadtrackr_sanitize_forms_data($params['forms'] ?? array());
+            update_option('leadtrackr_fluent_forms_forms', $forms);
+
+            return new WP_REST_Response(array(
+                'success' => true,
+            ));
+        },
+        'permission_callback' => 'leadtrackr_check_admin_permission',
     ));
 
     register_rest_route(LEADTRACKR_API_NAMESPACE, '/divi', array(
         'methods' => 'POST',
         'callback' => function (WP_REST_Request $request) {
-            $process_contact_form = $request->get_json_params()['processContactForm'];
+            $params = $request->get_json_params();
+            $process_contact_form = !empty($params['processContactForm']);
             update_option('leadtrackr_divi_process_contact_form', $process_contact_form);
 
             return new WP_REST_Response(array(
                 'success' => true,
             ));
         },
+        'permission_callback' => 'leadtrackr_check_admin_permission',
     ));
 }
 
@@ -441,6 +906,103 @@ define('leadtrackr_lastNamePossibleNames', array('last_name', 'lastName', 'last-
 define('leadtrackr_emailPossibleNames', array('email', 'Email', 'e-mail', 'E-mail', 'e-mail address', 'E-mail Address', 'email address', 'Email Address', 'emailadres', 'Emailadres', 'e-mailadres', 'E-mailadres'));
 define('leadtrackr_phonePossibleNames', array('phone', 'Phone', 'phone number', 'Phone Number', 'telefoon', 'Telefoon', 'telefoonnummer', 'Telefoonnummer'));
 define('leadtrackr_companyPossibleNames', array('company', 'Company', 'company name', 'Company Name', 'bedrijf', 'Bedrijf', 'bedrijfsnaam', 'Bedrijfsnaam'));
+
+/**
+ * Extract userData from a flat key-value array of form fields.
+ *
+ * Matching strategy (in priority order):
+ * 1. Field type hints (email, tel/phone) — if $field_types is provided
+ * 2. Exact match against possibleNames arrays
+ * 3. Sanitized match (stripped colons, trimmed) against possibleNames
+ * 4. Partial match (strpos) — catches keys like "your-email" or "contact_phone"
+ *
+ * @param array $fields Key-value pairs of form field labels/names and their values.
+ * @param array $field_types Optional. Key-value pairs of field names and their input types (e.g. 'email', 'tel').
+ * @return array The extracted userData with keys: firstName, lastName, email, phone, company.
+ */
+function leadtrackr_extract_user_data($fields, $field_types = array())
+{
+    $user_data = array();
+
+    $mapping = array(
+        'firstName' => leadtrackr_firstNamePossibleNames,
+        'lastName' => leadtrackr_lastNamePossibleNames,
+        'email' => leadtrackr_emailPossibleNames,
+        'phone' => leadtrackr_phonePossibleNames,
+        'company' => leadtrackr_companyPossibleNames,
+    );
+
+    $usable = array();
+    foreach ($fields as $key => $value) {
+        if (empty($value)) {
+            continue;
+        }
+        $usable[$key] = array(
+            'value' => $value,
+            'sanitized' => str_replace(':', '', sanitize_text_field($key)),
+        );
+    }
+
+    $claim = function ($slot, $value) use (&$user_data) {
+        if (isset($user_data[$slot])) {
+            return;
+        }
+        // A checkbox called email_optin partially matches "email" and would
+        // otherwise claim the slot with a value of "1", locking out the real
+        // address. Nothing without an @ can be an email, so it is never a
+        // useful fallback here.
+        if ($slot === 'email' && (!is_string($value) || strpos($value, '@') === false)) {
+            return;
+        }
+        $user_data[$slot] = $value;
+    };
+
+    // Three passes, from most to least certain. Running them across all fields
+    // in turn — rather than deciding field by field in form order — is what
+    // stops a weaker match earlier in the form from claiming a slot that a
+    // better field further down would have filled.
+
+    // 1. Types declared by the form builder itself.
+    foreach ($usable as $key => $field) {
+        $type = isset($field_types[$key]) ? $field_types[$key] : '';
+        if ($type === 'email') {
+            $claim('email', $field['value']);
+        }
+        if ($type === 'tel' || $type === 'phone') {
+            $claim('phone', $field['value']);
+        }
+    }
+
+    // 2. Field names that match a known name exactly.
+    foreach ($mapping as $slot => $possible_names) {
+        foreach ($usable as $key => $field) {
+            if (in_array($key, $possible_names, true) || in_array($field['sanitized'], $possible_names, true)) {
+                $claim($slot, $field['value']);
+                break;
+            }
+        }
+    }
+
+    // 3. Anything that merely contains a known name. Deliberately generous: a
+    // company name landing in firstName beats an empty lead, and a field is
+    // allowed to fill a second slot here — but only now that every exact match
+    // has already had its pick.
+    foreach ($mapping as $slot => $possible_names) {
+        if (isset($user_data[$slot])) {
+            continue;
+        }
+        foreach ($usable as $key => $field) {
+            foreach ($possible_names as $name) {
+                if (stripos($key, $name) !== false) {
+                    $claim($slot, $field['value']);
+                    break 2;
+                }
+            }
+        }
+    }
+
+    return $user_data;
+}
 
 function leadtrackr_parse_attributes_data()
 {
@@ -488,14 +1050,82 @@ function leadtrackr_parse_attributes_data()
         $attributes_data['cid'] = $cid_cookie;
     }
 
-    if (isset($_COOKIE['_ga'])) {
-        $sid_cookie = sanitize_text_field(wp_unslash($_COOKIE['_ga']));
-        $parts = explode('.', $sid_cookie);
-        $stripped = implode('.', array_slice($parts, 2));
-        $attributes_data['sid'] = explode('$', $stripped)[0];
+    return $attributes_data;
+}
+
+/**
+ * Send lead data to the LeadTrackr API.
+ *
+ * @param array $data The lead data to send.
+ * @return array|WP_Error The response or WP_Error on failure.
+ */
+function leadtrackr_send_lead($data)
+{
+    // Without a project the API can only reject this, and the visitor waits out
+    // the timeout for nothing. The settings page says no leads are sent until
+    // the Project ID is filled in; this is what makes that true.
+    if (empty($data['projectId'])) {
+        return null;
     }
 
-    return $attributes_data;
+    if (isset($_COOKIE['lt_channelflow'])) {
+        // Deliberately not run through sanitize_text_field: that strips
+        // percent-encoded octets, which mangles campaign values. json_decode
+        // returning an array is the validation.
+        $parsed = json_decode(wp_unslash($_COOKIE['lt_channelflow']), true);
+        if (is_array($parsed)) {
+            $data['channelFlow'] = $parsed;
+        }
+    }
+
+    $api_token = leadtrackr_decrypt_token(get_option('leadtrackr_api_token', ''));
+    $has_token = !empty($api_token);
+
+    $endpoint = $has_token ? LEADTRACKR_LEAD_ENDPOINT : LEADTRACKR_LEAD_ENDPOINT_LEGACY;
+
+    $headers = array('Content-Type' => 'application/json');
+    if ($has_token) {
+        // The API reads x-api-key. Sending any other header name authenticates
+        // nothing and the lead comes back 401.
+        $headers['x-api-key'] = $api_token;
+    }
+
+    $response = wp_remote_post($endpoint, array(
+        'body' => wp_json_encode($data),
+        'headers' => $headers,
+        // This call blocks the visitor's form submission, so it must fail fast
+        // rather than hold the page while LeadTrackr is unreachable.
+        'timeout' => 5,
+    ));
+
+    leadtrackr_log_lead_result($response, $endpoint);
+
+    return $response;
+}
+
+/**
+ * Record why a lead did not arrive. Without this a 401 or a timeout is
+ * indistinguishable from a lead that was never submitted.
+ *
+ * @param array|WP_Error $response Result of the API call.
+ * @param string         $endpoint The endpoint that was called.
+ */
+function leadtrackr_log_lead_result($response, $endpoint)
+{
+    if (is_wp_error($response)) {
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+        error_log('[LeadTrackr] Lead not sent to ' . $endpoint . ': ' . $response->get_error_message());
+        return;
+    }
+
+    $code = wp_remote_retrieve_response_code($response);
+    if ($code < 200 || $code >= 300) {
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+        error_log(
+            '[LeadTrackr] Lead rejected by ' . $endpoint . ' with status ' . $code . ': ' .
+            wp_remote_retrieve_body($response)
+        );
+    }
 }
 
 /**
@@ -506,6 +1136,7 @@ function leadtrackr_parse_attributes_data()
  */
 function leadtrackr_gravity_forms_submission($entry, $form)
 {
+    $track_all = get_option('leadtrackr_gf_track_all', false);
     $leadtrackr_gf_forms = get_option('leadtrackr_gf_forms', array());
     $form_id = $form['id'];
 
@@ -515,9 +1146,19 @@ function leadtrackr_gravity_forms_submission($entry, $form)
 
     $leadtrackr_form = reset($leadtrackr_form);
 
-
-    if (empty($leadtrackr_form) || !$leadtrackr_form['sendToLeadTrackr']) {
+    if (!$track_all && (empty($leadtrackr_form) || !$leadtrackr_form['sendToLeadTrackr'])) {
         return;
+    }
+
+    $form_fields = array();
+    $field_types = array();
+    foreach ($form['fields'] as $field) {
+        if (isset($entry[$field['id']])) {
+            $form_fields[$field['label']] = $entry[$field['id']];
+            if (!empty($field['inputType'])) {
+                $field_types[$field['label']] = $field['inputType'];
+            }
+        }
     }
 
     $data = array(
@@ -525,10 +1166,10 @@ function leadtrackr_gravity_forms_submission($entry, $form)
         'formData' => array(
             'formId' => $form['id'],
             'formName' => $form['title'],
-            'customFormName' => $leadtrackr_form['customTitle'] ?? '',
-            'formFields' => array()
+            'customFormName' => !empty($leadtrackr_form) ? ($leadtrackr_form['customTitle'] ?? '') : '',
+            'formFields' => $form_fields,
         ),
-        'userData' => array(),
+        'userData' => leadtrackr_extract_user_data($form_fields, $field_types),
         'deviceData' => array(
             'ipAddress' => $entry['ip'],
             'userAgent' => $entry['user_agent'],
@@ -536,65 +1177,7 @@ function leadtrackr_gravity_forms_submission($entry, $form)
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
 
-    if (isset($_COOKIE['lt_channelflow'])) {
-        $data['lt_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['lt_channelflow']));
-    }
-
-    foreach ($form['fields'] as $field) {
-        if (isset($entry[$field['id']])) {
-            $data['formData']['formFields'][] = array(
-                $field['label'] => $entry[$field['id']],
-            );
-
-            $sanitized_label = sanitize_text_field($field['label']);
-            $sanitized_label = str_replace(':', '', $sanitized_label);
-
-            if (in_array($field['label'], leadtrackr_firstNamePossibleNames)) {
-                $data['userData']['firstName'] = $entry[$field['id']];
-            } else if (in_array($sanitized_label, leadtrackr_firstNamePossibleNames)) {
-                $data['userData']['firstName'] = $entry[$field['id']];
-            }
-
-            if (in_array($field['label'], leadtrackr_lastNamePossibleNames)) {
-                $data['userData']['lastName'] = $entry[$field['id']];
-            } else if (in_array($sanitized_label, leadtrackr_lastNamePossibleNames)) {
-                $data['userData']['lastName'] = $entry[$field['id']];
-            }
-
-            if ($field['inputType'] === 'email') {
-                $data['userData']['email'] = $entry[$field['id']];
-            }
-
-            if (in_array($field['label'], leadtrackr_emailPossibleNames)) {
-                $data['userData']['email'] = $entry[$field['id']];
-            } else if (in_array($sanitized_label, leadtrackr_emailPossibleNames)) {
-                $data['userData']['email'] = $entry[$field['id']];
-            }
-
-            if ($field['inputType'] === 'tel' || $field['inputType'] === 'phone') {
-                $data['userData']['phone'] = $entry[$field['id']];
-            }
-
-            if (in_array($field['label'], leadtrackr_phonePossibleNames)) {
-                $data['userData']['phone'] = $entry[$field['id']];
-            } else if (in_array($sanitized_label, leadtrackr_phonePossibleNames)) {
-                $data['userData']['phone'] = $entry[$field['id']];
-            }
-
-            if (in_array($field['label'], leadtrackr_companyPossibleNames)) {
-                $data['userData']['company'] = $entry[$field['id']];
-            } else if (in_array($sanitized_label, leadtrackr_companyPossibleNames)) {
-                $data['userData']['company'] = $entry[$field['id']];
-            }
-        }
-    }
-
-    $response = wp_remote_post(LEADTRACKR_LEAD_ENDPOINT, array(
-        'body' => wp_json_encode($data),
-        'headers' => array(
-            'Content-Type' => 'application/json',
-        ),
-    ));
+    $response = leadtrackr_send_lead($data);
 
     if (is_wp_error($response)) {
         error_log('LeadTrackr: Error sending Gravity Forms submission to LeadTrackr: ' . $response->get_error_message());
@@ -611,6 +1194,7 @@ add_action('gform_after_submission', 'leadtrackr_gravity_forms_submission', 10, 
  */
 function leadtrackr_cf7_submission($contact_form)
 {
+    $track_all = get_option('leadtrackr_cf7_track_all', false);
     $leadtrackr_cf7_forms = get_option('leadtrackr_cf7_forms', array());
     $form_id = $contact_form->id();
 
@@ -620,7 +1204,7 @@ function leadtrackr_cf7_submission($contact_form)
 
     $leadtrackr_form = reset($leadtrackr_form);
 
-    if (empty($leadtrackr_form) || !$leadtrackr_form['sendToLeadTrackr']) {
+    if (!$track_all && (empty($leadtrackr_form) || !$leadtrackr_form['sendToLeadTrackr'])) {
         return;
     }
 
@@ -629,7 +1213,7 @@ function leadtrackr_cf7_submission($contact_form)
         'formData' => array(
             'formId' => $contact_form->id(),
             'formName' => $contact_form->title(),
-            'customFormName' => $leadtrackr_form['customTitle'] ?? '',
+            'customFormName' => !empty($leadtrackr_form) ? ($leadtrackr_form['customTitle'] ?? '') : '',
             'formFields' => array()
         ),
         'userData' => array(),
@@ -637,9 +1221,6 @@ function leadtrackr_cf7_submission($contact_form)
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
 
-    if (isset($_COOKIE['lt_channelflow'])) {
-        $data['lt_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['lt_channelflow']));
-    }
 
     if (isset($_SERVER['REMOTE_ADDR']) && !empty($_SERVER['REMOTE_ADDR'])) {
         $data['deviceData']['ipAddress'] = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR']));
@@ -656,114 +1237,28 @@ function leadtrackr_cf7_submission($contact_form)
         return;
     }
 
-    $all_form_fields = array();
+    $form_fields = array();
+    $field_types = array();
 
     foreach ($submission->get_posted_data() as $key => $value) {
+        $form_fields[$key] = $value;
         $data['formData']['formFields'][$key] = $value;
-
-        $all_form_fields[] = $key;
     }
 
-    foreach (leadtrackr_firstNamePossibleNames as $possibleName) {
-        if ($submission->get_posted_data($possibleName) && (($data['userData']['firstName'] ?? '') === '')) {
-            $data['userData']['firstName'] = $submission->get_posted_data($possibleName);
-            break;
-        }
-
-        if ((($data['userData']['firstName'] ?? '') === '')) {
-            foreach ($all_form_fields as $field) {
-                if (strpos($field, $possibleName) !== false) {
-                    $data['userData']['firstName'] = $submission->get_posted_data($field);
-                    break;
-                }
-            }
-        }
+    // Build field type map from CF7 form tags for type-based fallback
+    $email_tags = $contact_form->scan_form_tags(['type' => 'email']);
+    if (!empty($email_tags) && isset($email_tags[0])) {
+        $field_types[$email_tags[0]['name']] = 'email';
     }
 
-    foreach (leadtrackr_lastNamePossibleNames as $possibleName) {
-        if ($submission->get_posted_data($possibleName) && (($data['userData']['lastName'] ?? '') === '')) {
-            $data['userData']['lastName'] = $submission->get_posted_data($possibleName);
-            break;
-        }
-
-        if ((($data['userData']['lastName'] ?? '') === '')) {
-            foreach ($all_form_fields as $field) {
-                if (strpos($field, $possibleName) !== false) {
-                    $data['userData']['lastName'] = $submission->get_posted_data($field);
-                    break;
-                }
-            }
-        }
+    $tel_tags = $contact_form->scan_form_tags(['type' => 'tel']);
+    if (!empty($tel_tags) && isset($tel_tags[0])) {
+        $field_types[$tel_tags[0]['name']] = 'tel';
     }
 
-    foreach (leadtrackr_emailPossibleNames as $possibleName) {
-        if ($submission->get_posted_data($possibleName) && (($data['userData']['email'] ?? '') === '')) {
-            $data['userData']['email'] = $submission->get_posted_data($possibleName);
-            break;
-        }
+    $data['userData'] = leadtrackr_extract_user_data($form_fields, $field_types);
 
-        if ((($data['userData']['email'] ?? '') === '')) {
-            foreach ($all_form_fields as $field) {
-                if (strpos($field, $possibleName) !== false) {
-                    $data['userData']['email'] = $submission->get_posted_data($field);
-                    break;
-                }
-            }
-        }
-    }
-
-    if ((($data['userData']['email'] ?? '') === '')) {
-        $emailField = $contact_form->scan_form_tags(['type' => 'email'])[0];
-        $data['userData']['email'] = $submission->get_posted_data($emailField['name']);
-    }
-
-    foreach (leadtrackr_phonePossibleNames as $possibleName) {
-        if ($submission->get_posted_data($possibleName) && (($data['userData']['phone'] ?? '') === '')) {
-            $data['userData']['phone'] = $submission->get_posted_data($possibleName);
-            break;
-        }
-
-        if ((($data['userData']['phone'] ?? '') === '')) {
-            foreach ($all_form_fields as $field) {
-                if (strpos($field, $possibleName) !== false) {
-                    $data['userData']['phone'] = $submission->get_posted_data($field);
-                    break;
-                }
-            }
-        }
-    }
-
-    if ((($data['userData']['phone'] ?? '') === '')) {
-        $phoneFields = $contact_form->scan_form_tags(['type' => 'tel']);
-
-        if (!empty($phoneFields) && isset($phoneFields[0])) {
-            $data['userData']['phone'] = $submission->get_posted_data($phoneFields[0]['name']);
-        }
-    }
-
-
-    foreach (leadtrackr_companyPossibleNames as $possibleName) {
-        if ($submission->get_posted_data($possibleName) && (($data['userData']['company'] ?? '') === '')) {
-            $data['userData']['company'] = $submission->get_posted_data($possibleName);
-            break;
-        }
-
-        if ((($data['userData']['company'] ?? '') === '')) {
-            foreach ($all_form_fields as $field) {
-                if (strpos($field, $possibleName) !== false) {
-                    $data['userData']['company'] = $submission->get_posted_data($field);
-                    break;
-                }
-            }
-        }
-    }
-
-    $response = wp_remote_post(LEADTRACKR_LEAD_ENDPOINT, array(
-        'body' => wp_json_encode($data),
-        'headers' => array(
-            'Content-Type' => 'application/json',
-        ),
-    ));
+    $response = leadtrackr_send_lead($data);
 
     if (is_wp_error($response)) {
         error_log('LeadTrackr: Error sending Contact Form 7 submission to LeadTrackr: ' . $response->get_error_message());
@@ -779,6 +1274,7 @@ add_action('wpcf7_mail_sent', 'leadtrackr_cf7_submission', 10, 1);
  */
 function leadtrackr_elementor_forms_submission($record)
 {
+    $track_all = get_option('leadtrackr_elementor_track_all', false);
     $leadtrackr_elementor_forms = get_option('leadtrackr_elementor_forms', array());
     $form_id = $record->get_form_settings('id');
     $form_post_id = $record->get_form_settings('form_post_id');
@@ -793,7 +1289,7 @@ function leadtrackr_elementor_forms_submission($record)
 
     $leadtrackr_form = reset($leadtrackr_form);
 
-    if (empty($leadtrackr_form) || !$leadtrackr_form['sendToLeadTrackr']) {
+    if (!$track_all && (empty($leadtrackr_form) || !$leadtrackr_form['sendToLeadTrackr'])) {
         return;
     }
 
@@ -802,53 +1298,22 @@ function leadtrackr_elementor_forms_submission($record)
         'formData' => array(
             'formId' => $form_post_id . "_" . $form_id,
             'formName' => $record->get_form_settings('form_name'),
-            'customFormName' => $leadtrackr_form['customTitle'] ?? '',
+            'customFormName' => !empty($leadtrackr_form) ? ($leadtrackr_form['customTitle'] ?? '') : '',
             'formFields' => array()
         ),
         'userData' => array(),
         'deviceData' => array(
-            'ipAddress' => $_SERVER['REMOTE_ADDR'],
-            'userAgent' => $_SERVER['HTTP_USER_AGENT'],
+            'ipAddress' => isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '',
+            'userAgent' => isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'])) : '',
         ),
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
 
-    if (isset($_COOKIE['lt_channelflow'])) {
-        $data['lt_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['lt_channelflow']));
-    }
+    $form_fields = $record->get_formatted_data();
+    $data['formData']['formFields'] = $form_fields;
+    $data['userData'] = leadtrackr_extract_user_data($form_fields);
 
-    $fields = $record->get_formatted_data();
-
-    foreach ($fields as $key => $value) {
-        $data['formData']['formFields'][$key] = $value;
-
-        if (in_array($key, leadtrackr_firstNamePossibleNames)) {
-            $data['userData']['firstName'] = $value;
-        }
-
-        if (in_array($key, leadtrackr_lastNamePossibleNames)) {
-            $data['userData']['lastName'] = $value;
-        }
-
-        if (in_array($key, leadtrackr_emailPossibleNames)) {
-            $data['userData']['email'] = $value;
-        }
-
-        if (in_array($key, leadtrackr_phonePossibleNames)) {
-            $data['userData']['phone'] = $value;
-        }
-
-        if (in_array($key, leadtrackr_companyPossibleNames)) {
-            $data['userData']['company'] = $value;
-        }
-    }
-
-    $response = wp_remote_post(LEADTRACKR_LEAD_ENDPOINT, array(
-        'body' => wp_json_encode($data),
-        'headers' => array(
-            'Content-Type' => 'application/json',
-        ),
-    ));
+    $response = leadtrackr_send_lead($data);
 
     if (is_wp_error($response)) {
         error_log('LeadTrackr: Error sending Elementor form submission to LeadTrackr: ' . $response->get_error_message());
@@ -867,6 +1332,7 @@ add_action('elementor_pro/forms/new_record', 'leadtrackr_elementor_forms_submiss
  */
 function leadtrackr_wpforms_forms_submission($fields, $entry, $form_data, $entry_id)
 {
+    $track_all = get_option('leadtrackr_wpforms_track_all', false);
     $leadtrackr_wpforms_forms = get_option('leadtrackr_wpforms_forms', array());
     $form_id = (int)$form_data['id'];
 
@@ -880,7 +1346,7 @@ function leadtrackr_wpforms_forms_submission($fields, $entry, $form_data, $entry
 
     $leadtrackr_form = reset($leadtrackr_form);
 
-    if (empty($leadtrackr_form) || !$leadtrackr_form['sendToLeadTrackr']) {
+    if (!$track_all && (empty($leadtrackr_form) || !$leadtrackr_form['sendToLeadTrackr'])) {
         return;
     }
 
@@ -889,81 +1355,49 @@ function leadtrackr_wpforms_forms_submission($fields, $entry, $form_data, $entry
         'formData' => array(
             'formId' => $form_id,
             'formName' => $form_data['settings']['form_title'],
-            'customFormName' => $leadtrackr_form['customTitle'] ?? '',
+            'customFormName' => !empty($leadtrackr_form) ? ($leadtrackr_form['customTitle'] ?? '') : '',
             'formFields' => array()
         ),
         'userData' => array(),
         'deviceData' => array(
-            'ipAddress' => $_SERVER['REMOTE_ADDR'],
-            'userAgent' => $_SERVER['HTTP_USER_AGENT'],
+            'ipAddress' => isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '',
+            'userAgent' => isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'])) : '',
         ),
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
 
-    if (isset($_COOKIE['lt_channelflow'])) {
-        $data['lt_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['lt_channelflow']));
-    }
+    $form_fields = array();
+    $field_types = array();
 
     foreach ($entry['fields'] as $key => $value) {
         if (is_array($value)) {
             foreach ($value as $subKey => $subValue) {
-                $data['formData']['formFields'][$subKey] = $subValue;
+                $form_fields[$subKey] = $subValue;
             }
         } else {
             $label = $fields[$key]['name'];
-            $data['formData']['formFields'][$label] = $value;
+            $form_fields[$label] = $value;
 
-            $type = $fields[$key]['type'];
-            if ($type === 'email') {
-                $data['userData']['email'] = $value;
-            }
-
-            if ($type === 'phone') {
-                $data['userData']['phone'] = $value;
+            if (!empty($fields[$key]['type'])) {
+                $field_types[$label] = $fields[$key]['type'];
             }
         }
     }
 
-    foreach ($data['formData']['formFields'] as $key => $value) {
-        if (in_array($key, leadtrackr_firstNamePossibleNames)) {
-            $data['userData']['firstName'] = $value;
-        }
+    $data['formData']['formFields'] = $form_fields;
+    $data['userData'] = leadtrackr_extract_user_data($form_fields, $field_types);
 
-        if (in_array($key, leadtrackr_lastNamePossibleNames)) {
-            $data['userData']['lastName'] = $value;
-        }
-
-        if (in_array($key, leadtrackr_emailPossibleNames)) {
-            $data['userData']['email'] = $value;
-        }
-
-        if (in_array($key, leadtrackr_phonePossibleNames)) {
-            $data['userData']['phone'] = $value;
-        }
-
-        if (in_array($key, leadtrackr_companyPossibleNames)) {
-            $data['userData']['company'] = $value;
-        }
-    }
-
-
-    $response = wp_remote_post(LEADTRACKR_LEAD_ENDPOINT, array(
-        'body' => wp_json_encode($data),
-        'headers' => array(
-            'Content-Type' => 'application/json',
-        ),
-    ));
+    $response = leadtrackr_send_lead($data);
 
     if (is_wp_error($response)) {
         error_log('LeadTrackr: Error sending WPForms submission to LeadTrackr: ' . $response->get_error_message());
     }
-
-    return;
 }
 
 add_action('wpforms_process_complete', 'leadtrackr_wpforms_forms_submission', 10, 4);
 
 function leadtrackr_fluent_forms_submission($submissionId, $formData, $form) {
+    $track_all = get_option('leadtrackr_fluent_track_all', false);
     $form_id = (int)$form['id'];
 
     if (!$form_id) {
@@ -977,7 +1411,7 @@ function leadtrackr_fluent_forms_submission($submissionId, $formData, $form) {
 
     $leadtrackr_form = reset($leadtrackr_form);
 
-    if (empty($leadtrackr_form) || !$leadtrackr_form['sendToLeadTrackr']) {
+    if (!$track_all && (empty($leadtrackr_form) || !$leadtrackr_form['sendToLeadTrackr'])) {
         return;
     }
 
@@ -986,61 +1420,35 @@ function leadtrackr_fluent_forms_submission($submissionId, $formData, $form) {
         'formData' => array(
             'formId' => $form_id,
             'formName' => $form['title'],
-            'customFormName' => $leadtrackr_form['customTitle'] ?? '',
+            'customFormName' => !empty($leadtrackr_form) ? ($leadtrackr_form['customTitle'] ?? '') : '',
             'formFields' => array()
         ),
         'userData' => array(),
         'deviceData' => array(
-            'ipAddress' => $_SERVER['REMOTE_ADDR'],
-            'userAgent' => $_SERVER['HTTP_USER_AGENT'],
+            'ipAddress' => isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '',
+            'userAgent' => isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'])) : '',
         ),
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
 
-    if (isset($_COOKIE['lt_channelflow'])) {
-        $data['lt_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['lt_channelflow']));
-    }
+    $form_fields = array();
 
     foreach ($formData as $key => $value) {
         if (in_array($key, array('__fluent_form_embded_post_id', '_fluentform_1_fluentformnonce', '_wp_http_referer'))) {
             continue;
         }
 
-        $data['formData']['formFields'][$key] = $value;
-
-        if (in_array($key, leadtrackr_firstNamePossibleNames)) {
-            $data['userData']['firstName'] = $value;
-        }
-
-        if (in_array($key, leadtrackr_lastNamePossibleNames)) {
-            $data['userData']['lastName'] = $value;
-        }
-
-        if (in_array($key, leadtrackr_emailPossibleNames)) {
-            $data['userData']['email'] = $value;
-        }
-
-        if (in_array($key, leadtrackr_phonePossibleNames)) {
-            $data['userData']['phone'] = $value;
-        }
-
-        if (in_array($key, leadtrackr_companyPossibleNames)) {
-            $data['userData']['company'] = $value;
-        }
+        $form_fields[$key] = $value;
     }
 
-    $response = wp_remote_post(LEADTRACKR_LEAD_ENDPOINT, array(
-        'body' => wp_json_encode($data),
-        'headers' => array(
-            'Content-Type' => 'application/json',
-        ),
-    ));
+    $data['formData']['formFields'] = $form_fields;
+    $data['userData'] = leadtrackr_extract_user_data($form_fields);
+
+    $response = leadtrackr_send_lead($data);
 
     if (is_wp_error($response)) {
         error_log('LeadTrackr: Error sending Fluent Forms submission to LeadTrackr: ' . $response->get_error_message());
     }
-
-    return;
 }
 
 add_action('fluentform/submission_inserted', 'leadtrackr_fluent_forms_submission', 10, 3);
@@ -1062,52 +1470,26 @@ function leadtrackr_divi_contact_form_submission($processed_fields_values, $et_c
         ),
         'userData' => array(),
         'deviceData' => array(
-            'ipAddress' => $_SERVER['REMOTE_ADDR'],
-            'userAgent' => $_SERVER['HTTP_USER_AGENT'],
+            'ipAddress' => isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '',
+            'userAgent' => isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'])) : '',
         ),
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
 
-    if (isset($_COOKIE['lt_channelflow'])) {
-        $data['lt_channelflow'] = sanitize_text_field(wp_unslash($_COOKIE['lt_channelflow']));
-    }
+    $form_fields = array();
 
     foreach ($processed_fields_values as $key => $value) {
-        $data['formData']['formFields'][$key] = $value['value'];
-
-        if (in_array($key, leadtrackr_firstNamePossibleNames)) {
-            $data['userData']['firstName'] = $value['value'];
-        }
-
-        if (in_array($key, leadtrackr_lastNamePossibleNames)) {
-            $data['userData']['lastName'] = $value['value'];
-        }
-
-        if (in_array($key, leadtrackr_emailPossibleNames)) {
-            $data['userData']['email'] = $value['value'];
-        }
-
-        if (in_array($key, leadtrackr_phonePossibleNames)) {
-            $data['userData']['phone'] = $value['value'];
-        }
-
-        if (in_array($key, leadtrackr_companyPossibleNames)) {
-            $data['userData']['company'] = $value['value'];
-        }
+        $form_fields[$key] = $value['value'];
     }
 
-    $response = wp_remote_post(LEADTRACKR_LEAD_ENDPOINT, array(
-        'body' => wp_json_encode($data),
-        'headers' => array(
-            'Content-Type' => 'application/json',
-        ),
-    ));
+    $data['formData']['formFields'] = $form_fields;
+    $data['userData'] = leadtrackr_extract_user_data($form_fields);
+
+    $response = leadtrackr_send_lead($data);
 
     if (is_wp_error($response)) {
         error_log('LeadTrackr: Error sending Divi Contact Form submission to LeadTrackr: ' . $response->get_error_message());
     }
-
-    return;
 }
 
 add_action('et_pb_contact_form_submit', 'leadtrackr_divi_contact_form_submission', 10, 3);

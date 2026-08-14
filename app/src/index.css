@@ -109,3 +109,80 @@
 .card-hover{
   @apply transition-all duration-300 hover:shadow-md;
 }
+
+/*
+ * WordPress admin styles target inputs by their type attribute
+ * (input[type="text"], input[type="password"], …). Any field in this plugin
+ * with an explicit type was therefore being restyled by forms.css — different
+ * border, radius and padding than the fields without one. Reset those rules
+ * inside our own mount point so the plugin's design is what actually renders.
+ */
+#leadtrackr-app-settings input[type="text"],
+#leadtrackr-app-settings input[type="password"],
+#leadtrackr-app-settings input[type="url"],
+#leadtrackr-app-settings input[type="tel"],
+#leadtrackr-app-settings input[type="email"],
+#leadtrackr-app-settings input[type="number"],
+#leadtrackr-app-settings input[type="search"],
+#leadtrackr-app-settings select,
+#leadtrackr-app-settings textarea {
+  border: 1px solid hsl(var(--input));
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+  min-height: 2.5rem;
+  line-height: 1.5;
+  font-size: 0.875rem;
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--background));
+  box-shadow: none;
+}
+
+#leadtrackr-app-settings input[type="text"]:focus,
+#leadtrackr-app-settings input[type="password"]:focus,
+#leadtrackr-app-settings input[type="url"]:focus,
+#leadtrackr-app-settings input[type="tel"]:focus,
+#leadtrackr-app-settings input[type="email"]:focus,
+#leadtrackr-app-settings input[type="number"]:focus,
+#leadtrackr-app-settings select:focus,
+#leadtrackr-app-settings textarea:focus {
+  border-color: hsl(var(--ring));
+  box-shadow: none;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+#leadtrackr-app-settings input[type="checkbox"] {
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+#leadtrackr-app-settings input[type="color"] {
+  padding: 2px;
+  min-height: 2.5rem;
+  width: 3.5rem;
+  border: 1px solid hsl(var(--input));
+  border-radius: var(--radius);
+  background-color: hsl(var(--background));
+}
+
+/*
+ * WordPress draws admin checkboxes itself: appearance is stripped and the tick
+ * is a dashicon in ::before, coloured #3582c4. That wins over accent-color, so
+ * the plugin's checkboxes came out WordPress blue. Hand the rendering back to
+ * the browser and let accent-color carry the brand.
+ */
+#leadtrackr-app-settings input[type="checkbox"] {
+  appearance: auto;
+  -webkit-appearance: checkbox;
+  accent-color: #52b483;
+  background: none;
+  border: none;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  transition: none;
+}
+
+#leadtrackr-app-settings input[type="checkbox"]::before {
+  content: none;
+}
