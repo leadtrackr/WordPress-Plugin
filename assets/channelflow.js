@@ -14,6 +14,11 @@
 
   var COOKIE_NAME = 'lt_channelflow';
   var SESSION_COOKIE = 'lt_session';
+  var CONSENT_COOKIE = 'lt_consent';
+  var CONSENT_TYPES = ['ad_storage', 'analytics_storage', 'ad_user_data', 'ad_personalization'];
+  // Google's internal consent state codes.
+  var CONSENT_GRANTED = 1;
+  var CONSENT_DENIED = 2;
   var MAX_AGE_SECONDS = 395 * 86400;
   var DEFAULT_TIMEOUT_MINUTES = 30;
 
@@ -247,6 +252,59 @@
     return flow;
   }
 
+  /**
+   * Reads Consent Mode state from gtag's internal store and leaves it where PHP
+   * can pick it up when a form is submitted — the lead is sent server-side, so
+   * it cannot read this itself.
+   *
+   * There is no documented client-side API for this outside GTM's own template
+   * sandbox, and plenty of sites have no gtag or GTM at all. Every path that
+   * cannot produce a definite answer therefore removes the cookie rather than
+   * writing a guess: an absent value reads as "we don't know", and if this call
+   * ever stops working the field simply goes missing instead of going wrong.
+   */
+  function updateConsentState() {
+    var getConsentState;
+    try {
+      getConsentState =
+        window.google_tag_data &&
+        window.google_tag_data.ics &&
+        window.google_tag_data.ics.getConsentState;
+    } catch (e) {
+      getConsentState = null;
+    }
+
+    var state = {};
+    var known = 0;
+    if (typeof getConsentState === 'function') {
+      for (var i = 0; i < CONSENT_TYPES.length; i++) {
+        var type = CONSENT_TYPES[i];
+        var value;
+        try {
+          value = getConsentState(type);
+        } catch (e) {
+          continue;
+        }
+        if (value === CONSENT_GRANTED) {
+          state[type] = 'granted';
+          known++;
+        } else if (value === CONSENT_DENIED) {
+          state[type] = 'denied';
+          known++;
+        }
+      }
+    }
+
+    if (known === 0) {
+      // Clear rather than leave a stale answer behind, for instance after gtag
+      // has been removed from the site.
+      setCookie(CONSENT_COOKIE, '', 0);
+      return;
+    }
+
+    setCookie(CONSENT_COOKIE, JSON.stringify(state), sessionTimeoutSeconds());
+  }
+
   function updateChannelFlow() {
     var flow = readChannelFlow();
     // Truthy, not just present: a cleared cookie can linger as an empty value.
@@ -281,4 +339,5 @@
   }
 
   updateChannelFlow();
+  updateConsentState();
 })();

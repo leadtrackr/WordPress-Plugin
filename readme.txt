@@ -32,5 +32,6 @@ With Channel Flow tracking enabled, the plugin sets two first-party cookies on t
 
 - `lt_channelflow` — the visitor's marketing channel path (source, medium, campaign and landing page per session). Contains no personal information and no unique visitor identifier. Expires after 395 days.
 - `lt_session` — indicates whether the visitor is still within the same browsing session. Contains no visitor information. Expires after 30 minutes of inactivity.
+- `lt_consent` — the Google Consent Mode state (granted or denied per category) at the visitor's last pageview, so it can be recorded alongside the lead. Only set on sites that run Google Consent Mode, and only when a definite state can be read. Contains no visitor information. Expires after 30 minutes of inactivity.
 
 Channel Flow tracking is enabled by default on new installations and left disabled on sites that update from an earlier version.

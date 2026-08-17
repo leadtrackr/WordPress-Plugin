@@ -1004,6 +1004,40 @@ function leadtrackr_extract_user_data($fields, $field_types = array())
     return $user_data;
 }
 
+/**
+ * Reads the consent state that assets/channelflow.js left in a cookie. The lead
+ * is sent from PHP, which cannot reach gtag's in-browser store itself.
+ *
+ * The cookie is visitor-controlled, so only the four known types and the two
+ * known values survive: this ends up on the lead, and anything else would be a
+ * stranger's text in your reporting. An unreadable or absent cookie yields null
+ * and the field is left off entirely — never guessed at.
+ */
+function leadtrackr_consent_state()
+{
+    if (empty($_COOKIE['lt_consent'])) {
+        return null;
+    }
+
+    $parsed = json_decode(wp_unslash($_COOKIE['lt_consent']), true);
+    if (!is_array($parsed)) {
+        return null;
+    }
+
+    $allowed_types = array('ad_storage', 'analytics_storage', 'ad_user_data', 'ad_personalization');
+    $consent = array();
+    foreach ($allowed_types as $type) {
+        if (!isset($parsed[$type])) {
+            continue;
+        }
+        if ($parsed[$type] === 'granted' || $parsed[$type] === 'denied') {
+            $consent[$type] = $parsed[$type];
+        }
+    }
+
+    return empty($consent) ? null : $consent;
+}
+
 function leadtrackr_parse_attributes_data()
 {
     $attributes_data = array();
@@ -1048,6 +1082,11 @@ function leadtrackr_parse_attributes_data()
 
     if ($cid_cookie !== '') {
         $attributes_data['cid'] = $cid_cookie;
+    }
+
+    $consent = leadtrackr_consent_state();
+    if ($consent !== null) {
+        $attributes_data['consent'] = $consent;
     }
 
     return $attributes_data;
