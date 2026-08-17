@@ -263,6 +263,8 @@
    * writing a guess: an absent value reads as "we don't know", and if this call
    * ever stops working the field simply goes missing instead of going wrong.
    */
+  var lastConsentWritten = null;
+
   function updateConsentState() {
     var getConsentState;
     try {
@@ -295,14 +297,20 @@
       }
     }
 
-    if (known === 0) {
+    var serialised = known === 0 ? '' : JSON.stringify(state);
+    if (serialised === lastConsentWritten) {
+      return;
+    }
+    lastConsentWritten = serialised;
+
+    if (serialised === '') {
       // Clear rather than leave a stale answer behind, for instance after gtag
       // has been removed from the site.
       setCookie(CONSENT_COOKIE, '', 0);
       return;
     }
 
-    setCookie(CONSENT_COOKIE, JSON.stringify(state), sessionTimeoutSeconds());
+    setCookie(CONSENT_COOKIE, serialised, sessionTimeoutSeconds());
   }
 
   function updateChannelFlow() {
@@ -340,4 +348,16 @@
 
   updateChannelFlow();
   updateConsentState();
+
+  // Consent is nearly always given after this script has run: the banner
+  // appears, the visitor accepts, and nothing navigates. Reading it once on
+  // pageview would therefore record the state from before they agreed. These
+  // two listeners re-read it at the moments that decide what ends up on the
+  // lead, without loading anything extra at submit time.
+  //
+  // submit runs in the capture phase so it fires before a form builder turns
+  // the submission into an AJAX call; the cookie is written synchronously and
+  // so travels with that request either way.
+  document.addEventListener('submit', updateConsentState, true);
+  document.addEventListener('pointerdown', updateConsentState, true);
 })();
