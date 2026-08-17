@@ -9,7 +9,7 @@
  * @wordpress-plugin
  * Plugin Name:       LeadTrackr
  * Description:       Capture form submissions and send lead data to LeadTrackr for offline conversion tracking, attribution, and channel flow analysis.
- * Version:           1.0.7
+ * Version:           1.1.0
  * Author:            LeadTrackr
  * Author URI:        https://leadtrackr.io/
  * License:           GPL-2.0+
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly
 }
 
-define('LEADTRACKR_PLUGIN_VERSION', '1.0.7');
+define('LEADTRACKR_PLUGIN_VERSION', '1.1.0');
 
 define('LEADTRACKR_API_NAMESPACE', 'leadtrackr/v1');
 define('LEADTRACKR_LEAD_ENDPOINT_LEGACY', 'https://app.leadtrackr.io/api/leads/createLead');
