@@ -932,8 +932,48 @@ function leadtrackr_extract_user_data($fields, $field_types = array())
         'company' => leadtrackr_companyPossibleNames,
     );
 
-    $usable = array();
+    // Form builders hand composite fields over as arrays: Fluent Forms sends
+    // names => [first_name, last_name], WPForms sends [first, last]. Left as
+    // they are, the key "names" partially matches "name" and firstName becomes
+    // the whole object. Splitting them into their parts first means the normal
+    // matching sees first_name and last_name, which it already knows, and no
+    // array can ever reach a user field.
+    $flattened = array();
     foreach ($fields as $key => $value) {
+        if (!is_array($value)) {
+            $flattened[$key] = $value;
+            continue;
+        }
+        foreach ($value as $sub_key => $sub_value) {
+            if (is_array($sub_value) || $sub_value === '' || $sub_value === null) {
+                continue;
+            }
+            if (is_string($sub_key)) {
+                // Builders disagree on what to call the parts: Fluent Forms
+                // uses first_name / last_name, WPForms uses first / last. Map
+                // them onto one name so the matching below does not need to
+                // know which builder it came from.
+                $canonical = strtolower($sub_key);
+                if ($canonical === 'first') {
+                    $canonical = 'first_name';
+                } elseif ($canonical === 'last') {
+                    $canonical = 'last_name';
+                } else {
+                    $canonical = $sub_key;
+                }
+                $flattened[$canonical] = $sub_value;
+            } else {
+                // A plain list, such as a checkbox group: keep it under its own
+                // label rather than losing it.
+                $flattened[$key] = isset($flattened[$key])
+                    ? $flattened[$key] . ', ' . $sub_value
+                    : $sub_value;
+            }
+        }
+    }
+
+    $usable = array();
+    foreach ($flattened as $key => $value) {
         if (empty($value)) {
             continue;
         }
@@ -1038,6 +1078,37 @@ function leadtrackr_consent_state()
     return empty($consent) ? null : $consent;
 }
 
+/**
+ * The page the form was submitted from, as host and path without the query
+ * string — the same shape the GTM tag sends.
+ *
+ * Taken from the referer rather than the request URI, because an AJAX
+ * submission posts to /wp-json or admin-ajax.php and the request URI would
+ * record that instead of the page the visitor was actually on.
+ *
+ * The referer is visitor-controlled and ends up on the lead, so anything
+ * pointing somewhere other than this site is discarded.
+ */
+function leadtrackr_conversion_page()
+{
+    if (empty($_SERVER['HTTP_REFERER'])) {
+        return '';
+    }
+
+    $referer = wp_parse_url(esc_url_raw(wp_unslash($_SERVER['HTTP_REFERER'])));
+    if (empty($referer['host'])) {
+        return '';
+    }
+
+    $home = wp_parse_url(home_url());
+    if (empty($home['host']) || strcasecmp($referer['host'], $home['host']) !== 0) {
+        return '';
+    }
+
+    $path = isset($referer['path']) ? $referer['path'] : '/';
+    return $referer['host'] . $path;
+}
+
 function leadtrackr_parse_attributes_data()
 {
     $attributes_data = array();
@@ -1082,6 +1153,11 @@ function leadtrackr_parse_attributes_data()
 
     if ($cid_cookie !== '') {
         $attributes_data['cid'] = $cid_cookie;
+    }
+
+    $conversion_page = leadtrackr_conversion_page();
+    if ($conversion_page !== '') {
+        $attributes_data['conversionPage'] = $conversion_page;
     }
 
     $consent = leadtrackr_consent_state();

@@ -266,24 +266,24 @@
   var lastConsentWritten = null;
 
   function updateConsentState() {
-    var getConsentState;
+    var ics;
     try {
-      getConsentState =
-        window.google_tag_data &&
-        window.google_tag_data.ics &&
-        window.google_tag_data.ics.getConsentState;
+      ics = window.google_tag_data && window.google_tag_data.ics;
     } catch (e) {
-      getConsentState = null;
+      ics = null;
     }
 
     var state = {};
     var known = 0;
-    if (typeof getConsentState === 'function') {
+    // Called as a method, never pulled out into a bare function: gtag's
+    // implementation reads its own state through `this`, so an unbound call
+    // throws — and the catch below would quietly turn that into "unknown".
+    if (ics && typeof ics.getConsentState === 'function') {
       for (var i = 0; i < CONSENT_TYPES.length; i++) {
         var type = CONSENT_TYPES[i];
         var value;
         try {
-          value = getConsentState(type);
+          value = ics.getConsentState(type);
         } catch (e) {
           continue;
         }
