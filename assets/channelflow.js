@@ -346,18 +346,42 @@
     setCookie(SESSION_COOKIE, '1', sessionTimeoutSeconds());
   }
 
-  updateChannelFlow();
-  updateConsentState();
+  /**
+   * Consent is nearly always given after this script has run: the banner
+   * appears, the visitor accepts, and nothing navigates. gtag exposes a
+   * listener for exactly this, so the cookie is rewritten the moment consent
+   * changes instead of being re-checked on every interaction.
+   *
+   * The retry is because this script sits in the head and gtag frequently
+   * arrives a moment later, when there would be nothing to register on yet.
+   */
+  function watchConsent(attemptsLeft) {
+    var ics;
+    try {
+      ics = window.google_tag_data && window.google_tag_data.ics;
+    } catch (e) {
+      return;
+    }
 
-  // Consent is nearly always given after this script has run: the banner
-  // appears, the visitor accepts, and nothing navigates. Reading it once on
-  // pageview would therefore record the state from before they agreed. These
-  // two listeners re-read it at the moments that decide what ends up on the
-  // lead, without loading anything extra at submit time.
-  //
-  // submit runs in the capture phase so it fires before a form builder turns
-  // the submission into an AJAX call; the cookie is written synchronously and
-  // so travels with that request either way.
-  document.addEventListener('submit', updateConsentState, true);
-  document.addEventListener('pointerdown', updateConsentState, true);
+    if (ics && typeof ics.addListener === 'function') {
+      updateConsentState();
+      try {
+        ics.addListener(CONSENT_TYPES, updateConsentState);
+      } catch (e) {
+        // Undocumented API: losing the listener costs updates, nothing else.
+      }
+      return;
+    }
+
+    if (attemptsLeft > 0) {
+      setTimeout(function () {
+        watchConsent(attemptsLeft - 1);
+      }, 400);
+    }
+  }
+
+  updateChannelFlow();
+  // Runs first so a stale value is cleared even when gtag never turns up.
+  updateConsentState();
+  watchConsent(10);
 })();
