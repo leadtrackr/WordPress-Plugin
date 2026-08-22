@@ -1115,83 +1115,109 @@ function leadtrackr_conversion_page()
 }
 
 /**
- * First-party click- and browser-ID cookies, keyed by the field they become on
- * the lead.
+ * Where each field can be found: the URL parameter of the page converted on,
+ * then the cookies the platform's own pixel writes.
  *
- * Every one of these is written by the ad platform's own pixel on this domain,
- * so they are only ever read here, never created. An ID we invented ourselves
- * is one the platform cannot match, which is worse than sending nothing — so an
- * absent cookie stays absent.
+ * URL before cookie is the order the GTM tag and the LeadBot already use for
+ * gclid, and the one every Stape template uses. The parameter is the freshest
+ * copy and is there even when the pixel is missing, blocked by consent, or has
+ * not written its cookie yet.
  *
- * The URL parameter each of these mirrors (ttclid, ScCid, epik, rdt_cid, ...)
- * is deliberately not read. A form is rarely submitted on the landing page that
- * carried it, and by then the query string is long gone; the pixel captured it
- * on arrival and put it in the cookie, and that copy is the one that survives
- * to the conversion. This runs server-side on submit, where only cookies exist.
+ * Cookies are only read, never created. An ID we invent is one the platform
+ * cannot match, so an absent cookie stays absent. Browser IDs have no URL
+ * parameter for that reason — they exist only as something the pixel made.
  *
- * Field names match what each platform calls the parameter itself, so the API
- * can hand them to a conversions endpoint without a translation table.
- *
- * Where a list has two names, the first wins: a server-side container writes the
- * cleaner value, and the browser pixel's cookie is the fallback.
+ * Field names match what each platform calls the parameter, so the API can pass
+ * them to a conversions endpoint without a translation table.
  */
-function leadtrackr_click_id_cookies()
+function leadtrackr_click_id_sources()
 {
     return array(
-        // TikTok — ttp is the browser ID, its equivalent of _fbp.
-        'ttclid'    => array('ttclid'),
-        'ttp'       => array('_ttp'),
-
-        // LinkedIn — only set when first-party tracking is enabled in Campaign
-        // Manager; without it LinkedIn never appends li_fat_id to begin with.
-        'li_fat_id' => array('li_fat_id'),
-
-        // Snapchat — scid is the browser ID.
-        'scclid'    => array('_scclid'),
-        'scid'      => array('_scid'),
-
-        // Reddit — rdt_cid without the underscore is what the older pixel
-        // wrote, kept as a fallback for visitors who still carry it.
-        'rdt_cid'   => array('_rdt_cid', 'rdt_cid'),
-        'rdt_uuid'  => array('_rdt_uuid'),
-
-        // Pinterest
-        'epik'      => array('_epik'),
-
-        // X
-        'twclid'    => array('twclid'),
-
-        // OpenAI — the cookie is the URL parameter with a __ prefix.
-        'oppref'    => array('__oppref'),
-        'obref'     => array('__obref'),
-
-        // Microsoft — the browser ID. The click ID needs a correction the rest
-        // do not, so it is handled in leadtrackr_microsoft_click_id().
-        'uetvid'    => array('uet_vid', '_uetvid'),
+        // field         url parameter   cookies, first match wins
+        'ttclid'    => array('ttclid',    array('ttclid')),
+        'ttp'       => array('',          array('_ttp')),
+        'li_fat_id' => array('li_fat_id', array('li_fat_id')),
+        // Snapchat capitalises its parameter where nobody else does.
+        'scclid'    => array('ScCid',     array('_scclid')),
+        'scid'      => array('',          array('_scid')),
+        // rdt_cid without the underscore is what Reddit's older pixel wrote.
+        'rdt_cid'   => array('rdt_cid',   array('_rdt_cid', 'rdt_cid')),
+        'rdt_uuid'  => array('',          array('_rdt_uuid')),
+        'epik'      => array('epik',      array('_epik')),
+        'twclid'    => array('twclid',    array('twclid')),
+        // OpenAI's cookies are its parameter with a __ prefix.
+        'oppref'    => array('oppref',    array('__oppref')),
+        'obref'     => array('',          array('__obref')),
+        // Microsoft's browser ID. Its click ID needs a correction the rest do
+        // not, so that one lives in leadtrackr_microsoft_click_id().
+        'uetvid'    => array('',          array('uet_vid', '_uetvid')),
     );
 }
 
 /**
- * Reads the first of these cookies that holds a usable value.
+ * Query parameters of the page the form was submitted from.
  *
- * Cookies are visitor-controlled and this ends up on the lead, so an
- * implausible value is discarded outright rather than truncated: half a click
- * ID is not a click ID, and storing it would only put a stranger's text in your
- * reporting while looking like real attribution.
+ * The referer is the one place a click ID's URL parameter survives to the
+ * server: a same-origin request carries the full referring URL including its
+ * query string, and a form submission is same-origin. This only helps when the
+ * conversion happens on a page whose URL still carries the click ID — the usual
+ * case for a paid landing page with the form on it, and never the case for a
+ * visitor who converts three pages later. There the cookie is the only copy.
+ *
+ * The referer is visitor-controlled and ends up on the lead, so anything not
+ * pointing at this site is discarded, as in leadtrackr_conversion_page().
  */
-function leadtrackr_click_id_from_cookies($cookie_names)
+function leadtrackr_referer_query_params()
 {
+    $params = array();
+
+    if (empty($_SERVER['HTTP_REFERER'])) {
+        return $params;
+    }
+
+    $referer = wp_parse_url(esc_url_raw(wp_unslash($_SERVER['HTTP_REFERER'])));
+    $home = wp_parse_url(home_url());
+
+    if (empty($referer['host']) || empty($referer['query']) || empty($home['host'])) {
+        return $params;
+    }
+
+    if (strcasecmp($referer['host'], $home['host']) === 0) {
+        parse_str($referer['query'], $params);
+    }
+
+    return $params;
+}
+
+/**
+ * First usable value for one field, URL parameter before cookies.
+ *
+ * Both are visitor-controlled and land on the lead, so a value that cannot
+ * plausibly be a click ID is skipped rather than truncated: half a click ID is
+ * not a click ID, and storing it would look like real attribution.
+ */
+function leadtrackr_click_id($url_param, $cookie_names)
+{
+    $candidates = array();
+
+    if ($url_param !== '') {
+        $query = leadtrackr_referer_query_params();
+        if (isset($query[$url_param]) && is_string($query[$url_param])) {
+            $candidates[] = $query[$url_param];
+        }
+    }
+
     foreach ($cookie_names as $name) {
-        if (empty($_COOKIE[$name])) {
-            continue;
+        if (isset($_COOKIE[$name])) {
+            $candidates[] = wp_unslash($_COOKIE[$name]);
         }
+    }
 
-        $value = sanitize_text_field(wp_unslash($_COOKIE[$name]));
-        if ($value === '' || strlen($value) > LEADTRACKR_MAX_CLICK_ID_LENGTH) {
-            continue;
+    foreach ($candidates as $candidate) {
+        $value = sanitize_text_field($candidate);
+        if ($value !== '' && strlen($value) <= LEADTRACKR_MAX_CLICK_ID_LENGTH) {
+            return $value;
         }
-
-        return $value;
     }
 
     return '';
@@ -1200,41 +1226,58 @@ function leadtrackr_click_id_from_cookies($cookie_names)
 /**
  * Microsoft's click ID, which needs one correction the others do not.
  *
- * UET's browser pixel writes the cookie's own name into its value: the click ID
- * in _uetmsclkid arrives prefixed with the literal string "_uet", so
- * "_uet561f11b5eb0d..." has to be sent as "561f11b5eb0d...". Microsoft rejects
- * the prefixed form.
- *
- * A server-side container writes the same ID to uet_msclkid without the prefix,
- * so that one is preferred and taken as-is.
+ * UET's browser pixel writes the cookie's own name into its value: the ID in
+ * _uetmsclkid arrives as "_uet561f11b5…" and Microsoft rejects that form. A
+ * server-side container writes the same ID to uet_msclkid without the prefix.
  */
 function leadtrackr_microsoft_click_id()
 {
-    $from_server = leadtrackr_click_id_from_cookies(array('uet_msclkid'));
+    $value = leadtrackr_click_id('msclkid', array('uet_msclkid', '_uetmsclkid'));
+
+    return strpos($value, '_uet') === 0 ? substr($value, 4) : $value;
+}
+
+/**
+ * One of Google's click IDs, which reaches us through either of two cookies in
+ * either of two formats.
+ *
+ * A server-side container writes FPGCLAW, FPGCLGB, FPGCLAG and FPGCLDC; the
+ * browser tag writes the _gcl_* pair. Sites on server-side GTM often have only
+ * the former, the same reason FPID is read alongside _ga for the client ID.
+ *
+ * The browser tag wraps the ID in a dot-separated container whose last segment
+ * is the ID; the server-side one wraps it between ".k" and "$i". gbraid is the
+ * odd one out twice over: it lives in _gcl_ag rather than beside its siblings,
+ * and that cookie carries the server-side format even though the browser tag
+ * writes it.
+ *
+ * Google documents the cookie names but not which ID each holds; the mapping is
+ * taken from stape-io/google-conversion-events-tag.
+ */
+function leadtrackr_google_click_id($field, $server_cookie, $browser_cookie, $browser_uses_server_format = false)
+{
+    $from_url = leadtrackr_click_id($field, array());
+    if ($from_url !== '') {
+        return $from_url;
+    }
+
+    $from_server = leadtrackr_unwrap_gcl_cookie(leadtrackr_click_id('', array($server_cookie)), true);
     if ($from_server !== '') {
         return $from_server;
     }
 
-    $from_pixel = leadtrackr_click_id_from_cookies(array('_uetmsclkid'));
-    if ($from_pixel === '') {
-        return '';
-    }
-
-    return strpos($from_pixel, '_uet') === 0 ? substr($from_pixel, 4) : $from_pixel;
+    return leadtrackr_unwrap_gcl_cookie(
+        leadtrackr_click_id('', array($browser_cookie)),
+        $browser_uses_server_format
+    );
 }
 
 /**
- * Pulls the click ID out of one of Google's _gcl cookies.
- *
- * Two formats are in play. The browser tag writes dot-separated values whose
- * last segment is the ID (GCL.<timestamp>.<id>). A server-side container wraps
- * it between ".k" and "$i" instead.
- *
- * A value with no separator at all is not a container that lost its ID, it is
- * something else entirely, so it yields nothing rather than being passed on
- * whole.
+ * Pulls the ID out of a _gcl container. A value with no separator at all is not
+ * a container that lost its ID, so it yields nothing rather than being passed
+ * on whole.
  */
-function leadtrackr_parse_gcl_cookie($value, $server_format)
+function leadtrackr_unwrap_gcl_cookie($value, $server_format)
 {
     if ($server_format) {
         return preg_match('/\.k(.+)\$i/', $value, $matches) ? $matches[1] : '';
@@ -1245,43 +1288,9 @@ function leadtrackr_parse_gcl_cookie($value, $server_format)
     }
 
     $parts = explode('.', $value);
+
     return (string) end($parts);
 }
-
-/**
- * One of Google's click IDs, which can reach us through either of two cookies.
- *
- * A server-side container writes FPGCLAW, FPGCLGB and FPGCLAG; the browser tag
- * writes _gcl_aw, _gcl_gb and _gcl_ag. Sites on server-side GTM often have only
- * the former — the same reason FPID is read alongside _ga for the client ID —
- * so both are tried, server-side first because it is the less filtered copy.
- *
- * gbraid is the odd one out twice over: it lives in _gcl_ag rather than beside
- * its siblings, and that cookie carries the server-side format even though the
- * browser tag writes it. It also matters most, because gbraid carries the iOS
- * and app-campaign clicks where no gclid exists at all.
- *
- * Mapping confirmed against stape-io/google-conversion-events-tag, since Google
- * documents the cookie names but not which ID each one holds.
- */
-function leadtrackr_google_click_id($server_cookie, $browser_cookie, $browser_uses_server_format = false)
-{
-    $from_server = leadtrackr_click_id_from_cookies(array($server_cookie));
-    if ($from_server !== '') {
-        $parsed = leadtrackr_parse_gcl_cookie($from_server, true);
-        if ($parsed !== '') {
-            return $parsed;
-        }
-    }
-
-    $from_browser = leadtrackr_click_id_from_cookies(array($browser_cookie));
-    if ($from_browser !== '') {
-        return leadtrackr_parse_gcl_cookie($from_browser, $browser_uses_server_format);
-    }
-
-    return '';
-}
-
 function leadtrackr_parse_attributes_data()
 {
     $attributes_data = array();
@@ -1321,8 +1330,8 @@ function leadtrackr_parse_attributes_data()
         'dclid'  => array('FPGCLDC', '_gcl_dc', false),
     );
 
-    foreach ($google_click_ids as $field => $cookies) {
-        $value = leadtrackr_google_click_id($cookies[0], $cookies[1], $cookies[2]);
+    foreach ($google_click_ids as $field => $sources) {
+        $value = leadtrackr_google_click_id($field, $sources[0], $sources[1], $sources[2]);
         if ($value !== '') {
             $attributes_data[$field] = $value;
         }
@@ -1333,8 +1342,8 @@ function leadtrackr_parse_attributes_data()
         $attributes_data['msclkid'] = $msclkid;
     }
 
-    foreach (leadtrackr_click_id_cookies() as $field => $cookie_names) {
-        $value = leadtrackr_click_id_from_cookies($cookie_names);
+    foreach (leadtrackr_click_id_sources() as $field => $sources) {
+        $value = leadtrackr_click_id($sources[0], $sources[1]);
         if ($value !== '') {
             $attributes_data[$field] = $value;
         }
