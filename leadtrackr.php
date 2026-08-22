@@ -1224,26 +1224,62 @@ function leadtrackr_microsoft_click_id()
 }
 
 /**
- * Google's gbraid, which lives in a different cookie and a different format
- * from its siblings.
+ * Pulls the click ID out of one of Google's _gcl cookies.
  *
- * gclid, wbraid and dclid sit in _gcl_aw, _gcl_gb and _gcl_dc as dot-separated
- * values whose last segment is the ID. gbraid does not: it sits in _gcl_ag and
- * follows the format the server-side cookies use, where the ID is wrapped
- * between ".k" and "$i".
+ * Two formats are in play. The browser tag writes dot-separated values whose
+ * last segment is the ID (GCL.<timestamp>.<id>). A server-side container wraps
+ * it between ".k" and "$i" instead.
  *
- * gbraid carries iOS and app-campaign clicks, which is exactly the traffic
- * where no gclid exists — so without this those conversions arrive with no
- * Google click ID at all.
+ * A value with no separator at all is not a container that lost its ID, it is
+ * something else entirely, so it yields nothing rather than being passed on
+ * whole.
  */
-function leadtrackr_google_gbraid()
+function leadtrackr_parse_gcl_cookie($value, $server_format)
 {
-    $value = leadtrackr_click_id_from_cookies(array('FPGCLAG', '_gcl_ag'));
-    if ($value === '') {
+    if ($server_format) {
+        return preg_match('/\.k(.+)\$i/', $value, $matches) ? $matches[1] : '';
+    }
+
+    if (strpos($value, '.') === false) {
         return '';
     }
 
-    return preg_match('/\.k(.+)\$i/', $value, $matches) ? $matches[1] : '';
+    $parts = explode('.', $value);
+    return (string) end($parts);
+}
+
+/**
+ * One of Google's click IDs, which can reach us through either of two cookies.
+ *
+ * A server-side container writes FPGCLAW, FPGCLGB and FPGCLAG; the browser tag
+ * writes _gcl_aw, _gcl_gb and _gcl_ag. Sites on server-side GTM often have only
+ * the former — the same reason FPID is read alongside _ga for the client ID —
+ * so both are tried, server-side first because it is the less filtered copy.
+ *
+ * gbraid is the odd one out twice over: it lives in _gcl_ag rather than beside
+ * its siblings, and that cookie carries the server-side format even though the
+ * browser tag writes it. It also matters most, because gbraid carries the iOS
+ * and app-campaign clicks where no gclid exists at all.
+ *
+ * Mapping confirmed against stape-io/google-conversion-events-tag, since Google
+ * documents the cookie names but not which ID each one holds.
+ */
+function leadtrackr_google_click_id($server_cookie, $browser_cookie, $browser_uses_server_format = false)
+{
+    $from_server = leadtrackr_click_id_from_cookies(array($server_cookie));
+    if ($from_server !== '') {
+        $parsed = leadtrackr_parse_gcl_cookie($from_server, true);
+        if ($parsed !== '') {
+            return $parsed;
+        }
+    }
+
+    $from_browser = leadtrackr_click_id_from_cookies(array($browser_cookie));
+    if ($from_browser !== '') {
+        return leadtrackr_parse_gcl_cookie($from_browser, $browser_uses_server_format);
+    }
+
+    return '';
 }
 
 function leadtrackr_parse_attributes_data()
@@ -1274,23 +1310,17 @@ function leadtrackr_parse_attributes_data()
         $attributes_data['fbp'] = sanitize_text_field(wp_unslash($_COOKIE['_fbp']));
     }
 
-    if (isset($_COOKIE['_gcl_aw'])) {
-        $cookie_parts = explode('.', sanitize_text_field(wp_unslash($_COOKIE['_gcl_aw'])));
-        if (isset($cookie_parts[2])) {
-            $attributes_data['gclid'] =  $cookie_parts[2];
-        }
-    }
+    $google_click_ids = array(
+        'gclid'  => array('FPGCLAW', '_gcl_aw', false),
+        'wbraid' => array('FPGCLGB', '_gcl_gb', false),
+        'gbraid' => array('FPGCLAG', '_gcl_ag', true),
+    );
 
-    if (isset($_COOKIE['_gcl_gb'])) {
-        $cookie_parts = explode('.', sanitize_text_field(wp_unslash($_COOKIE['_gcl_gb'])));
-        if (isset($cookie_parts[2])) {
-            $attributes_data['wbraid'] =  $cookie_parts[2];
+    foreach ($google_click_ids as $field => $cookies) {
+        $value = leadtrackr_google_click_id($cookies[0], $cookies[1], $cookies[2]);
+        if ($value !== '') {
+            $attributes_data[$field] = $value;
         }
-    }
-
-    $gbraid = leadtrackr_google_gbraid();
-    if ($gbraid !== '') {
-        $attributes_data['gbraid'] = $gbraid;
     }
 
     $msclkid = leadtrackr_microsoft_click_id();
