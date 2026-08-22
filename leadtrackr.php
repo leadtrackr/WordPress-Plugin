@@ -1310,10 +1310,15 @@ function leadtrackr_parse_attributes_data()
         $attributes_data['fbp'] = sanitize_text_field(wp_unslash($_COOKIE['_fbp']));
     }
 
+    // dclid is collected but cannot be uploaded to Google Ads: ClickConversion
+    // takes gclid, gbraid or wbraid only. It belongs to Campaign Manager 360 and
+    // DV360, so it stays unused until there is an integration for those — but
+    // gathering it now costs a line and saves a release later.
     $google_click_ids = array(
         'gclid'  => array('FPGCLAW', '_gcl_aw', false),
         'wbraid' => array('FPGCLGB', '_gcl_gb', false),
         'gbraid' => array('FPGCLAG', '_gcl_ag', true),
+        'dclid'  => array('FPGCLDC', '_gcl_dc', false),
     );
 
     foreach ($google_click_ids as $field => $cookies) {
