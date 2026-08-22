@@ -1245,6 +1245,11 @@ function leadtrackr_microsoft_click_id()
  * browser tag writes the _gcl_* pair. Sites on server-side GTM often have only
  * the former, the same reason FPID is read alongside _ga for the client ID.
  *
+ * Reading the server-side ones only works here. They are set over HTTP as
+ * HttpOnly, so document.cookie cannot see them and neither can the GTM tag or
+ * the LeadBot — but PHP receives them in $_COOKIE like any other cookie. Do not
+ * carry this half over to the browser-side sources; it is dead code there.
+ *
  * The browser tag wraps the ID in a dot-separated container whose last segment
  * is the ID; the server-side one wraps it between ".k" and "$i". gbraid is the
  * odd one out twice over: it lives in _gcl_ag rather than beside its siblings,
