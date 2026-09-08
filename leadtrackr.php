@@ -81,9 +81,9 @@ function leadtrackr_forms_option($name)
  * failed.
  *
  * This cannot catch what PHP does not raise as a Throwable: exhausting the
- * memory limit or the execution time still ends the request. Those are bounded
- * where they arise instead — the API call carries its own timeout, and the
- * Elementor form scan pages through its results.
+ * memory limit or the execution time still ends the request. Nothing on this
+ * path invites either — the API call carries its own timeout, and the handlers
+ * do little else.
  *
  * @param string   $hook          Hook to attach to.
  * @param callable $handler       LeadTrackr callback for that hook.
@@ -1140,7 +1140,14 @@ function leadtrackr_consent_state()
         return null;
     }
 
-    $parsed = json_decode(wp_unslash($_COOKIE['lt_consent']), true);
+    // A request can send `lt_consent[]=x`, which PHP hands over as an array.
+    // json_decode() only takes a string, and this runs on every submission.
+    $raw = wp_unslash($_COOKIE['lt_consent']);
+    if (!is_string($raw)) {
+        return null;
+    }
+
+    $parsed = json_decode($raw, true);
     if (!is_array($parsed)) {
         return null;
     }
@@ -1466,7 +1473,9 @@ function leadtrackr_send_lead($data)
         // Deliberately not run through sanitize_text_field: that strips
         // percent-encoded octets, which mangles campaign values. json_decode
         // returning an array is the validation.
-        $parsed = json_decode(wp_unslash($_COOKIE['lt_channelflow']), true);
+        $raw = wp_unslash($_COOKIE['lt_channelflow']);
+        // A request can send this as an array; json_decode() only takes a string.
+        $parsed = is_string($raw) ? json_decode($raw, true) : null;
         if (is_array($parsed)) {
             $data['channelFlow'] = $parsed;
         }
@@ -1565,8 +1574,8 @@ function leadtrackr_gravity_forms_submission($entry, $form)
         ),
         'userData' => leadtrackr_extract_user_data($form_fields, $field_types),
         'deviceData' => array(
-            'ipAddress' => $entry['ip'],
-            'userAgent' => $entry['user_agent'],
+            'ipAddress' => $entry['ip'] ?? '',
+            'userAgent' => $entry['user_agent'] ?? '',
         ),
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
@@ -1748,7 +1757,7 @@ function leadtrackr_wpforms_forms_submission($fields, $entry, $form_data, $entry
         'projectId' => get_option('leadtrackr_project_id', ''),
         'formData' => array(
             'formId' => $form_id,
-            'formName' => $form_data['settings']['form_title'],
+            'formName' => $form_data['settings']['form_title'] ?? '',
             'customFormName' => !empty($leadtrackr_form) ? ($leadtrackr_form['customTitle'] ?? '') : '',
             'formFields' => array()
         ),
@@ -1763,13 +1772,14 @@ function leadtrackr_wpforms_forms_submission($fields, $entry, $form_data, $entry
     $form_fields = array();
     $field_types = array();
 
-    foreach ($entry['fields'] as $key => $value) {
+    foreach (($entry['fields'] ?? array()) as $key => $value) {
         if (is_array($value)) {
             foreach ($value as $subKey => $subValue) {
                 $form_fields[$subKey] = $subValue;
             }
         } else {
-            $label = $fields[$key]['name'];
+            // A stale cached page can post a key the form no longer has.
+            $label = $fields[$key]['name'] ?? $key;
             $form_fields[$label] = $value;
 
             if (!empty($fields[$key]['type'])) {
