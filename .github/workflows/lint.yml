@@ -1,0 +1,35 @@
+name: Lint
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every version the plugin header claims to support.
+        php: ["7.0", "7.4", "8.0", "8.1", "8.2", "8.3", "8.4"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+
+      # A parse error in a release is not one broken feature: the plugin does
+      # not load at all, and the guard that keeps a failure away from the
+      # visitor's form goes down with it. Cheapest possible check that the
+      # file at least runs on every version we tell people it runs on.
+      - name: Syntax check
+        run: |
+          find . \( -path ./.git -o -path ./app/node_modules \) -prune -o -name '*.php' -print0 \
+            | xargs -0 -r -n1 -P4 php -l
