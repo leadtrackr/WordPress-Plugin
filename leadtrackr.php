@@ -795,6 +795,20 @@ function leadtrackr_register_rest_api()
         'callback' => function (WP_REST_Request $request) {
             $params = $request->get_json_params();
             $project_id = sanitize_text_field($params['project_id'] ?? '');
+
+            // A save arriving without a project ID used to overwrite a working
+            // one with nothing. That stops every lead on the site while nothing
+            // the site owner can see changes: the form still submits, the page
+            // still says saved. Of the two wrong answers, keeping what is
+            // stored is the recoverable one. Deactivate the plugin to
+            // disconnect a site.
+            if ($project_id === '') {
+                return new WP_REST_Response(array(
+                    'success' => false,
+                    'message' => 'A project ID is required. The stored one was left in place.',
+                ), 400);
+            }
+
             update_option('leadtrackr_project_id', $project_id);
             return new WP_REST_Response(array(
                 'success' => true,
