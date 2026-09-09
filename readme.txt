@@ -38,6 +38,16 @@ Channel Flow tracking is enabled by default on new installations and left disabl
 
 ## Changelog
 
+### 1.1.2
+
+**A failure inside the plugin can no longer break a form.** Everything that runs inside a visitor's request — the six form integrations and the frontend scripts — is now wrapped so that whatever it throws is written to the error log and stops there. Tracking is worth less than the submission it observes: if LeadTrackr cannot record a lead, the visitor still sees their form go through.
+
+Fixed:
+
+* Sites configured by an earlier version could hold an empty value where a list of forms was expected. On PHP 8 that ended the request with a fatal error, so the form returned a 500 to the visitor and the lead was lost along with it. Stored form settings are now read as a list whatever the option holds, and rows that are not usable form records are skipped rather than deciding whether the form works.
+* The plugin's own settings page failed to load on those same sites, which left the configuration unreachable exactly when it needed correcting.
+* Saving the settings with the Project ID field empty overwrote a working project ID with nothing. Every lead on the site stopped from that moment, while the form kept submitting and the page still said saved. That save is now refused, and the API keeps what it has if a project ID arrives empty anyway.
+
 ### 1.1.0
 
 **Channel Flow no longer needs Google Tag Manager.** The plugin records the visitor's journey itself, so a site without GTM gets a channel path too. One entry per session rather than per pageview, using the same definition GA4 uses: a new session after 30 minutes of inactivity, or when a new campaign brings the visitor in. Enabled by default on new installations and left off on sites that update, so nothing changes under an existing site's feet.

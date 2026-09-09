@@ -9,7 +9,7 @@
  * @wordpress-plugin
  * Plugin Name:       LeadTrackr
  * Description:       Capture form submissions and send lead data to LeadTrackr for offline conversion tracking, attribution, and channel flow analysis.
- * Version:           1.1.1
+ * Version:           1.1.2
  * Author:            LeadTrackr
  * Author URI:        https://leadtrackr.io/
  * License:           GPL-2.0+
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly
 }
 
-define('LEADTRACKR_PLUGIN_VERSION', '1.1.1');
+define('LEADTRACKR_PLUGIN_VERSION', '1.1.2');
 
 define('LEADTRACKR_API_NAMESPACE', 'leadtrackr/v1');
 define('LEADTRACKR_LEAD_ENDPOINT_LEGACY', 'https://app.leadtrackr.io/api/leads/createLead');
@@ -35,6 +35,82 @@ define('LEADTRACKR_LEADBOT_SRC', 'https://cdn.jsdelivr.net/gh/leadtrackr/leadtra
 // visitor-controlled and land on the lead, so a value that cannot plausibly be
 // a click ID is dropped rather than stored.
 define('LEADTRACKR_MAX_CLICK_ID_LENGTH', 512);
+
+/**
+ * Read a stored list of forms as an array, whatever the option actually holds.
+ *
+ * get_option() only falls back to its default when the option does not exist.
+ * An option that does exist holding an empty string — which is how earlier
+ * versions of this plugin could leave it — comes back as that empty string,
+ * while every caller here treats the result as an array. array_filter() on a
+ * string is a TypeError on PHP 8, thrown in the middle of a visitor's form
+ * submission. Entries that are not usable form records are dropped for the
+ * same reason: one bad row must not decide whether the form works.
+ *
+ * @param string $name Option holding the per-form settings.
+ *
+ * @return array
+ */
+function leadtrackr_forms_option($name)
+{
+    $stored = get_option($name, array());
+
+    if (!is_array($stored)) {
+        return array();
+    }
+
+    return array_values(array_filter($stored, function ($form) {
+        return is_array($form) && isset($form['id']);
+    }));
+}
+
+/**
+ * Hook a callback that runs inside a visitor's request, without letting it
+ * break that request.
+ *
+ * Submission handlers execute during the form plugin's own submit, and the
+ * frontend scripts during the page load that carries the form. An uncaught
+ * error in either is not a LeadTrackr problem the site owner discovers later:
+ * it is a 500 on the visitor's submit or a blank page, so the form appears
+ * broken and the lead is lost along with the conversion it was meant to
+ * record. Tracking is always worth less than the thing it observes, so
+ * anything thrown here is written to the error log and swallowed.
+ *
+ * The first argument is passed back out, so a hook that is used as a filter
+ * keeps returning the value its form plugin expects even when the handler
+ * failed.
+ *
+ * This cannot catch what PHP does not raise as a Throwable: exhausting the
+ * memory limit or the execution time still ends the request. Nothing on this
+ * path invites either — the API call carries its own timeout, and the handlers
+ * do little else.
+ *
+ * @param string   $hook          Hook to attach to.
+ * @param callable $handler       LeadTrackr callback for that hook.
+ * @param int      $priority      Hook priority.
+ * @param int      $accepted_args Number of arguments the callback takes.
+ */
+function leadtrackr_add_guarded_action($hook, $handler, $priority = 10, $accepted_args = 1)
+{
+    add_action($hook, function () use ($hook, $handler) {
+        $args = func_get_args();
+
+        try {
+            call_user_func_array($handler, $args);
+        } catch (\Throwable $error) {
+            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+            error_log(sprintf(
+                '[LeadTrackr] %s was not tracked, the request itself was left alone: %s in %s on line %d',
+                $hook,
+                $error->getMessage(),
+                $error->getFile(),
+                $error->getLine()
+            ));
+        }
+
+        return isset($args[0]) ? $args[0] : null;
+    }, $priority, $accepted_args);
+}
 
 /**
  * Sites that already ran this plugin must not have their behaviour changed by an
@@ -239,7 +315,7 @@ function leadtrackr_enqueue_frontend_scripts()
         'before'
     );
 }
-add_action('wp_enqueue_scripts', 'leadtrackr_enqueue_frontend_scripts');
+leadtrackr_add_guarded_action('wp_enqueue_scripts', 'leadtrackr_enqueue_frontend_scripts');
 
 function leadtrackr_list_recursive_iterate_elements($elements, &$forms)
 {
@@ -337,7 +413,7 @@ function leadtrackr_get_global_data()
 {
     $gravity_forms_enabled = class_exists('GFForms');
     $gf_track_all = (bool)get_option('leadtrackr_gf_track_all', false);
-    $gravity_forms_forms = get_option('leadtrackr_gf_forms', array());
+    $gravity_forms_forms = leadtrackr_forms_option('leadtrackr_gf_forms');
     if ($gravity_forms_enabled) {
         $gf_forms = GFAPI::get_forms();
         // Map GFAPI forms to include only ID and title with default 'sendToLeadTrackr'
@@ -367,7 +443,7 @@ function leadtrackr_get_global_data()
 
     $cf7_enabled = class_exists('WPCF7_ContactForm');
     $cf7_track_all = (bool)get_option('leadtrackr_cf7_track_all', false);
-    $cf7_forms_forms = get_option('leadtrackr_cf7_forms', array());
+    $cf7_forms_forms = leadtrackr_forms_option('leadtrackr_cf7_forms');
     if ($cf7_enabled) {
         $cf7_forms = WPCF7_ContactForm::find();
         $cf7_forms_forms = array_map(function ($form) use ($cf7_forms_forms) {
@@ -395,7 +471,7 @@ function leadtrackr_get_global_data()
 
     $elementor_enabled = is_plugin_active('elementor-pro/elementor-pro.php');
     $elementor_track_all = (bool)get_option('leadtrackr_elementor_track_all', false);
-    $elementor_forms_forms = get_option('leadtrackr_elementor_forms', array());
+    $elementor_forms_forms = leadtrackr_forms_option('leadtrackr_elementor_forms');
     if ($elementor_enabled) {
         $results = leadtrackr_list_get_elementor_forms();
 
@@ -432,7 +508,7 @@ function leadtrackr_get_global_data()
 
     $wpforms_enabled = class_exists('WPForms');
     $wpforms_track_all = (bool)get_option('leadtrackr_wpforms_track_all', false);
-    $wpforms_forms_forms = get_option('leadtrackr_wpforms_forms', array());
+    $wpforms_forms_forms = leadtrackr_forms_option('leadtrackr_wpforms_forms');
     if ($wpforms_enabled) {
         $wpforms_forms = WPForms()->form->get();
         $wpforms_forms_forms = array_map(function ($form) use ($wpforms_forms_forms) {
@@ -459,7 +535,7 @@ function leadtrackr_get_global_data()
 
     $fluent_forms_enabled = is_plugin_active('fluentform/fluentform.php');
     $fluent_track_all = (bool)get_option('leadtrackr_fluent_track_all', false);
-    $fluent_forms_forms = get_option('leadtrackr_fluent_forms_forms', array());
+    $fluent_forms_forms = leadtrackr_forms_option('leadtrackr_fluent_forms_forms');
     if ($fluent_forms_enabled) {
         $ff_forms = \FluentForm\App\Helpers\Helper::getForms();
         foreach ($ff_forms as $id => $form_name) {
@@ -719,6 +795,20 @@ function leadtrackr_register_rest_api()
         'callback' => function (WP_REST_Request $request) {
             $params = $request->get_json_params();
             $project_id = sanitize_text_field($params['project_id'] ?? '');
+
+            // A save arriving without a project ID used to overwrite a working
+            // one with nothing. That stops every lead on the site while nothing
+            // the site owner can see changes: the form still submits, the page
+            // still says saved. Of the two wrong answers, keeping what is
+            // stored is the recoverable one. Deactivate the plugin to
+            // disconnect a site.
+            if ($project_id === '') {
+                return new WP_REST_Response(array(
+                    'success' => false,
+                    'message' => 'A project ID is required. The stored one was left in place.',
+                ), 400);
+            }
+
             update_option('leadtrackr_project_id', $project_id);
             return new WP_REST_Response(array(
                 'success' => true,
@@ -1064,7 +1154,14 @@ function leadtrackr_consent_state()
         return null;
     }
 
-    $parsed = json_decode(wp_unslash($_COOKIE['lt_consent']), true);
+    // A request can send `lt_consent[]=x`, which PHP hands over as an array.
+    // json_decode() only takes a string, and this runs on every submission.
+    $raw = wp_unslash($_COOKIE['lt_consent']);
+    if (!is_string($raw)) {
+        return null;
+    }
+
+    $parsed = json_decode($raw, true);
     if (!is_array($parsed)) {
         return null;
     }
@@ -1390,7 +1487,9 @@ function leadtrackr_send_lead($data)
         // Deliberately not run through sanitize_text_field: that strips
         // percent-encoded octets, which mangles campaign values. json_decode
         // returning an array is the validation.
-        $parsed = json_decode(wp_unslash($_COOKIE['lt_channelflow']), true);
+        $raw = wp_unslash($_COOKIE['lt_channelflow']);
+        // A request can send this as an array; json_decode() only takes a string.
+        $parsed = is_string($raw) ? json_decode($raw, true) : null;
         if (is_array($parsed)) {
             $data['channelFlow'] = $parsed;
         }
@@ -1455,7 +1554,7 @@ function leadtrackr_log_lead_result($response, $endpoint)
 function leadtrackr_gravity_forms_submission($entry, $form)
 {
     $track_all = get_option('leadtrackr_gf_track_all', false);
-    $leadtrackr_gf_forms = get_option('leadtrackr_gf_forms', array());
+    $leadtrackr_gf_forms = leadtrackr_forms_option('leadtrackr_gf_forms');
     $form_id = $form['id'];
 
     $leadtrackr_form = array_filter($leadtrackr_gf_forms, function ($leadtrackr_form) use ($form_id) {
@@ -1489,8 +1588,8 @@ function leadtrackr_gravity_forms_submission($entry, $form)
         ),
         'userData' => leadtrackr_extract_user_data($form_fields, $field_types),
         'deviceData' => array(
-            'ipAddress' => $entry['ip'],
-            'userAgent' => $entry['user_agent'],
+            'ipAddress' => $entry['ip'] ?? '',
+            'userAgent' => $entry['user_agent'] ?? '',
         ),
         'attributionData' => leadtrackr_parse_attributes_data(),
     );
@@ -1502,7 +1601,7 @@ function leadtrackr_gravity_forms_submission($entry, $form)
     }
 }
 
-add_action('gform_after_submission', 'leadtrackr_gravity_forms_submission', 10, 2);
+leadtrackr_add_guarded_action('gform_after_submission', 'leadtrackr_gravity_forms_submission', 10, 2);
 
 
 /**
@@ -1513,7 +1612,7 @@ add_action('gform_after_submission', 'leadtrackr_gravity_forms_submission', 10, 
 function leadtrackr_cf7_submission($contact_form)
 {
     $track_all = get_option('leadtrackr_cf7_track_all', false);
-    $leadtrackr_cf7_forms = get_option('leadtrackr_cf7_forms', array());
+    $leadtrackr_cf7_forms = leadtrackr_forms_option('leadtrackr_cf7_forms');
     $form_id = $contact_form->id();
 
     $leadtrackr_form = array_filter($leadtrackr_cf7_forms, function ($leadtrackr_form) use ($form_id) {
@@ -1583,7 +1682,7 @@ function leadtrackr_cf7_submission($contact_form)
     }
 }
 
-add_action('wpcf7_mail_sent', 'leadtrackr_cf7_submission', 10, 1);
+leadtrackr_add_guarded_action('wpcf7_mail_sent', 'leadtrackr_cf7_submission', 10, 1);
 
 /**
  * Handle Elementor form submission.
@@ -1593,7 +1692,7 @@ add_action('wpcf7_mail_sent', 'leadtrackr_cf7_submission', 10, 1);
 function leadtrackr_elementor_forms_submission($record)
 {
     $track_all = get_option('leadtrackr_elementor_track_all', false);
-    $leadtrackr_elementor_forms = get_option('leadtrackr_elementor_forms', array());
+    $leadtrackr_elementor_forms = leadtrackr_forms_option('leadtrackr_elementor_forms');
     $form_id = $record->get_form_settings('id');
     $form_post_id = $record->get_form_settings('form_post_id');
 
@@ -1638,7 +1737,7 @@ function leadtrackr_elementor_forms_submission($record)
     }
 }
 
-add_action('elementor_pro/forms/new_record', 'leadtrackr_elementor_forms_submission', 10, 1);
+leadtrackr_add_guarded_action('elementor_pro/forms/new_record', 'leadtrackr_elementor_forms_submission', 10, 1);
 
 /**
  * Handle WPForms submission.
@@ -1651,7 +1750,7 @@ add_action('elementor_pro/forms/new_record', 'leadtrackr_elementor_forms_submiss
 function leadtrackr_wpforms_forms_submission($fields, $entry, $form_data, $entry_id)
 {
     $track_all = get_option('leadtrackr_wpforms_track_all', false);
-    $leadtrackr_wpforms_forms = get_option('leadtrackr_wpforms_forms', array());
+    $leadtrackr_wpforms_forms = leadtrackr_forms_option('leadtrackr_wpforms_forms');
     $form_id = (int)$form_data['id'];
 
     if (!$form_id) {
@@ -1672,7 +1771,7 @@ function leadtrackr_wpforms_forms_submission($fields, $entry, $form_data, $entry
         'projectId' => get_option('leadtrackr_project_id', ''),
         'formData' => array(
             'formId' => $form_id,
-            'formName' => $form_data['settings']['form_title'],
+            'formName' => $form_data['settings']['form_title'] ?? '',
             'customFormName' => !empty($leadtrackr_form) ? ($leadtrackr_form['customTitle'] ?? '') : '',
             'formFields' => array()
         ),
@@ -1687,13 +1786,14 @@ function leadtrackr_wpforms_forms_submission($fields, $entry, $form_data, $entry
     $form_fields = array();
     $field_types = array();
 
-    foreach ($entry['fields'] as $key => $value) {
+    foreach (($entry['fields'] ?? array()) as $key => $value) {
         if (is_array($value)) {
             foreach ($value as $subKey => $subValue) {
                 $form_fields[$subKey] = $subValue;
             }
         } else {
-            $label = $fields[$key]['name'];
+            // A stale cached page can post a key the form no longer has.
+            $label = $fields[$key]['name'] ?? $key;
             $form_fields[$label] = $value;
 
             if (!empty($fields[$key]['type'])) {
@@ -1712,7 +1812,7 @@ function leadtrackr_wpforms_forms_submission($fields, $entry, $form_data, $entry
     }
 }
 
-add_action('wpforms_process_complete', 'leadtrackr_wpforms_forms_submission', 10, 4);
+leadtrackr_add_guarded_action('wpforms_process_complete', 'leadtrackr_wpforms_forms_submission', 10, 4);
 
 function leadtrackr_fluent_forms_submission($submissionId, $formData, $form) {
     $track_all = get_option('leadtrackr_fluent_track_all', false);
@@ -1722,7 +1822,7 @@ function leadtrackr_fluent_forms_submission($submissionId, $formData, $form) {
         return;
     }
 
-    $leadtrackr_fluent_forms_forms = get_option('leadtrackr_fluent_forms_forms', array());
+    $leadtrackr_fluent_forms_forms = leadtrackr_forms_option('leadtrackr_fluent_forms_forms');
     $leadtrackr_form = array_filter($leadtrackr_fluent_forms_forms, function ($leadtrackr_form) use ($form_id) {
         return $leadtrackr_form['id'] === $form_id;
     });
@@ -1769,7 +1869,7 @@ function leadtrackr_fluent_forms_submission($submissionId, $formData, $form) {
     }
 }
 
-add_action('fluentform/submission_inserted', 'leadtrackr_fluent_forms_submission', 10, 3);
+leadtrackr_add_guarded_action('fluentform/submission_inserted', 'leadtrackr_fluent_forms_submission', 10, 3);
 
 function leadtrackr_divi_contact_form_submission($processed_fields_values, $et_contact_error, $contact_form_info) {
     $divi_process_contact_form = get_option('leadtrackr_divi_process_contact_form', false);
@@ -1810,4 +1910,4 @@ function leadtrackr_divi_contact_form_submission($processed_fields_values, $et_c
     }
 }
 
-add_action('et_pb_contact_form_submit', 'leadtrackr_divi_contact_form_submission', 10, 3);
+leadtrackr_add_guarded_action('et_pb_contact_form_submit', 'leadtrackr_divi_contact_form_submission', 10, 3);

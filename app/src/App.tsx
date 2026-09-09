@@ -338,6 +338,19 @@ html,body{height:100%;margin:0;background:#f0f0f1;font-family:system-ui,sans-ser
     });
 
   const onSaveGeneral = async () => {
+    // Saving with this field empty used to overwrite a working project ID.
+    // Without one the plugin stops sending leads entirely, and nothing the
+    // site owner can see changes - the form still submits, the page still
+    // says saved. Refuse the save instead of accepting it silently.
+    if (!projectId.trim()) {
+      toast({
+        title: "A project ID is required",
+        description: "Leads are only sent once this is filled in, so nothing was saved.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
 
     const requests = [
